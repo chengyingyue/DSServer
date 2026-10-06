@@ -1,0 +1,6 @@
+upstream_base_url = "https://api.deepseek.com"
+bind = "0.0.0.0"
+port = 8787
+deep_paths = ["/chat/completions", "/v1/chat/completions"]
+store_dir = "data"
+keep_raw_sse = true
