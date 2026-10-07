@@ -83,6 +83,26 @@ Status: ready-for-agent
 - **模块**：上述行为横跨透传、聊天解析、流式、存储、Markdown，全部从这一接缝进入。
 - **先例**：全新仓库，无先例；本 spec 建立模式——httpx ASGI 测试客户端 + 临时 store 目录 + 假上游。
 
+### 接缝的代码形态（存档）
+
+接缝由 `tests/conftest.py` 里的两个「假货」夹出，测试只从这一个入口进、只看两类出口：
+
+```
+  测试代码
+    │  ① client_for(app)  ← 假装成 Client（httpx ASGITransport，不联网）
+    ▼
+  Bridge app ────────── ② build_app(config, handler) ──────► 假 Upstream（httpx.MockTransport，不联网、不花钱）
+    │
+    └─ 落盘  data/exchanges.jsonl、data/conversations/*.md
+                                    ▲
+                                    │ ③ 断言只看：返回的字节 / 落盘的文件
+```
+
+- **① 假 Client**：`client_for` 用 `ASGITransport` 把 HTTP 请求直接喂进 app。
+- **② 假 Upstream**：`build_app` 把 `create_app` 的 `upstream_transport` 换成 `MockTransport`。
+- **③ 只观察外部**：断言只读响应，或读 `read_records` / `conversation_files`；`config` fixture 把 `store_dir` 指向 `tmp_path`。
+- **纪律**：不调内部函数（`parse_chat_response`、`SSEAccumulator` 等）。已知例外：`render` 是命令行，`test_render_command.py` 直接调 `render_all`。
+
 ## Out of Scope
 
 - 过滤 / 修改请求或响应（优先级 2）。
