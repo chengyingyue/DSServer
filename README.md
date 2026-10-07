@@ -64,7 +64,10 @@ Open `http://<host>:8787/` in a browser. The same page lets you:
 - **Browse and name Conversations.** Every Conversation is listed; give any of
   them a name and it becomes that Conversation's Markdown filename. The name is
   stored as a Record in the log, so it survives a rebuild and a restart, and
-  rendering never overwrites it.
+  rendering never overwrites it. Derived filenames keep non-ASCII (e.g. Chinese)
+  characters, so they stay readable.
+- **Preview a Conversation.** Click a Conversation (or its View button) to read
+  its rendered content without leaving the page.
 - **Convert EPUBs.** Drop EPUBs into `data/epub/inbox/`, or upload one, and
   convert them into e-reader-friendly copies in `data/epub/out/`.
 - **Build an EPUB from Conversations.** Tick the Conversations you want and get a

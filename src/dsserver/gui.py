@@ -13,6 +13,9 @@ INDEX_HTML = """<!DOCTYPE html>
   th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; vertical-align: top; }
   button { cursor: pointer; }
   .muted { color: #777; }
+  a { color: #0366d6; cursor: pointer; }
+  #viewer { max-width: 48rem; width: 90%; border: 1px solid #ccc; border-radius: 6px; }
+  #viewer pre { white-space: pre-wrap; word-break: break-word; max-height: 60vh; overflow: auto; background: #f6f8fa; padding: 0.75rem; }
 </style>
 </head>
 <body>
@@ -64,6 +67,12 @@ INDEX_HTML = """<!DOCTYPE html>
 </p>
 <p><input id="work-id" type="text" placeholder="Work copy id" size="40"></p>
 <p><textarea id="work-content" rows="16" cols="80"></textarea></p>
+
+<dialog id="viewer">
+  <p><button id="viewer-close">Close</button></p>
+  <h2 id="viewer-title"></h2>
+  <pre id="viewer-body"></pre>
+</dialog>
 <script>
 async function load() {
   const response = await fetch('/api/conversations');
@@ -82,7 +91,10 @@ async function load() {
     tr.appendChild(select);
 
     const name = document.createElement('td');
-    name.textContent = conversation.name;
+    const link = document.createElement('a');
+    link.textContent = conversation.name;
+    link.addEventListener('click', () => view(conversation));
+    name.appendChild(link);
     tr.appendChild(name);
 
     const date = document.createElement('td');
@@ -94,6 +106,10 @@ async function load() {
     tr.appendChild(turns);
 
     const actions = document.createElement('td');
+    const viewButton = document.createElement('button');
+    viewButton.textContent = 'View';
+    viewButton.addEventListener('click', () => view(conversation));
+    actions.appendChild(viewButton);
     const button = document.createElement('button');
     button.textContent = 'Rename';
     button.addEventListener('click', () => rename(conversation));
@@ -103,6 +119,21 @@ async function load() {
     rows.appendChild(tr);
   }
   applyFilter();
+}
+
+async function view(conversation) {
+  const response = await fetch(
+    '/api/conversations/' + encodeURIComponent(conversation.key) +
+    '/content?branch=' + encodeURIComponent(conversation.branch),
+  );
+  const result = await response.json();
+  if (!response.ok) {
+    window.alert('View failed: ' + (result.error || response.status));
+    return;
+  }
+  document.getElementById('viewer-title').textContent = result.name;
+  document.getElementById('viewer-body').textContent = result.content;
+  document.getElementById('viewer').showModal();
 }
 
 async function rename(conversation) {
@@ -338,6 +369,9 @@ async function discardWork() {
   }
 }
 
+document.getElementById('viewer-close').addEventListener('click', () => {
+  document.getElementById('viewer').close();
+});
 document.getElementById('scan').addEventListener('click', scan);
 document.getElementById('upload').addEventListener('click', upload);
 document.getElementById('filter').addEventListener('input', applyFilter);

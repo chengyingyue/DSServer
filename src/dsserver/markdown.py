@@ -56,8 +56,8 @@ def conversation_key(msgs: list[dict[str, Any]]) -> str:
 def _slug(msgs: list[dict[str, Any]]) -> str:
     user = _first_message_with_role(msgs, "user")
     text = _content_text(user.get("content")) if user else ""
-    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return slug[:40].strip("-")
+    slug = re.sub(r"[^\w]+", "-", text.lower()).strip("-_")
+    return slug[:40].strip("-_")
 
 
 def _title(msgs: list[dict[str, Any]]) -> str:

@@ -235,6 +235,19 @@ def create_app(
             write_index(config, index.conversations)
         return JSONResponse(_conversation_summary(conversation))
 
+    @app.get("/api/conversations/{key}/content")
+    async def conversation_content(key: str, branch: int = 0) -> Response:
+        conversation = index.get(key, branch)
+        if conversation is None:
+            return JSONResponse({"error": "unknown conversation"}, status_code=404)
+        return JSONResponse(
+            {
+                "name": conversation.name or conversation.title,
+                "filename": conversation.filename,
+                "content": render_conversation(conversation),
+            }
+        )
+
     @app.get("/api/epub/files")
     async def list_epub_files() -> dict[str, list[str]]:
         return {

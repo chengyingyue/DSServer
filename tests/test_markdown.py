@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-
 from .conftest import build_app, chat_response, client_for, conversation_files, sequence_handler
 
 
@@ -108,11 +106,11 @@ async def test_index_lists_all_conversations(config):
         assert path.name in index
 
 
-async def test_non_ascii_topic_falls_back_to_a_hash_filename(config):
+async def test_non_ascii_topic_keeps_a_readable_filename(config):
     app = build_app(config, sequence_handler([chat_response("你好")]))
     async with client_for(app) as client:
         await client.post("/chat/completions", json={"messages": [{"role": "user", "content": "你好世界"}]})
 
     files = conversation_files(config)
     assert len(files) == 1
-    assert re.search(r"-([0-9a-f]{8})\.md$", files[0].name)
+    assert "你好世界" in files[0].name
