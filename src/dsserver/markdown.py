@@ -116,23 +116,35 @@ def _new_conversation(
     )
 
 
-def build_conversations(records: list[dict[str, Any]]) -> list[Conversation]:
-    states: dict[str, list[Conversation]] = {}
-    order: list[Conversation] = []
-    used_names: set[str] = set()
+class ConversationIndex:
+    def __init__(self) -> None:
+        self._states: dict[str, list[Conversation]] = {}
+        self._order: list[Conversation] = []
+        self._used_names: set[str] = set()
 
-    for record in records:
+    @property
+    def conversations(self) -> list[Conversation]:
+        return list(self._order)
+
+    @classmethod
+    def from_records(cls, records: list[dict[str, Any]]) -> "ConversationIndex":
+        index = cls()
+        for record in records:
+            index.apply(record)
+        return index
+
+    def apply(self, record: dict[str, Any]) -> Conversation | None:
         if record.get("kind") != "chat":
-            continue
+            return None
         request = record.get("request") or {}
         msgs = request.get("messages") or []
         if not msgs:
-            continue
+            return None
         signatures = [_signature(message) for message in msgs]
         key = conversation_key(msgs)
         response_message = (record.get("response") or {}).get("message") or {}
 
-        branches = states.setdefault(key, [])
+        branches = self._states.setdefault(key, [])
         conversation: Conversation | None = None
         new_messages: list[dict[str, Any]] = msgs
         for candidate in reversed(branches):
@@ -143,9 +155,9 @@ def build_conversations(records: list[dict[str, Any]]) -> list[Conversation]:
                 break
 
         if conversation is None:
-            conversation = _new_conversation(key, msgs, record, used_names, len(branches))
+            conversation = _new_conversation(key, msgs, record, self._used_names, len(branches))
             branches.append(conversation)
-            order.append(conversation)
+            self._order.append(conversation)
             new_messages = msgs
 
         conversation.turns.append(
@@ -160,8 +172,11 @@ def build_conversations(records: list[dict[str, Any]]) -> list[Conversation]:
             )
         )
         conversation.history = signatures + [_signature(response_message)]
+        return conversation
 
-    return order
+
+def build_conversations(records: list[dict[str, Any]]) -> list[Conversation]:
+    return ConversationIndex.from_records(records).conversations
 
 
 def render_conversation(conversation: Conversation) -> str:
@@ -223,12 +238,27 @@ def render_index(conversations: list[Conversation]) -> str:
     return "\n".join(lines)
 
 
+def _write_if_changed(path: Path, content: str) -> None:
+    if path.exists() and path.read_text(encoding="utf-8") == content:
+        return
+    path.write_text(content, encoding="utf-8")
+
+
+def write_conversation(config: Config, conversation: Conversation) -> None:
+    config.conversations_dir.mkdir(parents=True, exist_ok=True)
+    target = config.conversations_dir / conversation.filename
+    _write_if_changed(target, render_conversation(conversation))
+
+
+def write_index(config: Config, conversations: list[Conversation]) -> None:
+    _write_if_changed(config.index_path, render_index(conversations))
+
+
 def write_conversations_dir(config: Config, conversations: list[Conversation]) -> set[str]:
     config.conversations_dir.mkdir(parents=True, exist_ok=True)
     written: set[str] = set()
     for conversation in conversations:
-        target = config.conversations_dir / conversation.filename
-        target.write_text(render_conversation(conversation), encoding="utf-8")
+        write_conversation(config, conversation)
         written.add(conversation.filename)
     for existing in config.conversations_dir.glob("*.md"):
         if existing.name not in written:
@@ -238,7 +268,7 @@ def write_conversations_dir(config: Config, conversations: list[Conversation]) -
 
 def _write(config: Config, conversations: list[Conversation]) -> int:
     write_conversations_dir(config, conversations)
-    config.index_path.write_text(render_index(conversations), encoding="utf-8")
+    write_index(config, conversations)
     return len(conversations)
 
 

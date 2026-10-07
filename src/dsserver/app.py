@@ -13,7 +13,7 @@ from fastapi.responses import Response, StreamingResponse
 
 from .chat import ChatRequest, parse_chat_request, parse_chat_response
 from .config import Config
-from .markdown import write_markdown
+from .markdown import ConversationIndex, write_conversation, write_index
 from .models import CHAT_KIND, OTHER_KIND, build_client_info, build_exchange
 from .store import Store
 from .stream import StreamResult, tee_sse
@@ -89,6 +89,7 @@ def create_app(
         headers={"accept-encoding": "identity"},
     )
     store = Store(config.log_path)
+    index = ConversationIndex.from_records(store.records)
     write_lock = asyncio.Lock()
     upstream_host = urlsplit(config.upstream_base_url).netloc
 
@@ -106,7 +107,10 @@ def create_app(
         async with write_lock:
             await store.append(record)
             if markdown:
-                write_markdown(config, store.records)
+                conversation = index.apply(record)
+                if conversation is not None:
+                    write_conversation(config, conversation)
+                write_index(config, index.conversations)
 
     async def record_other(request: Request, status: int, latency_ms: int) -> None:
         record = build_exchange(
