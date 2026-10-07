@@ -57,6 +57,22 @@ uv run dsserver
 - `http://192.168.1.50:8787`
 - 或 `http://192.168.1.50:8787/v1`
 
+### 后台运行（无需一直开着终端）
+
+如果不想一直开着终端窗口，可以把它作为隐藏进程启动，并把日志输出到文件：
+
+```powershell
+Start-Process -WindowStyle Hidden -FilePath "uv" -ArgumentList "run", "dsserver" `
+  -RedirectStandardOutput "dsserver.log" -RedirectStandardError "dsserver.err.log"
+```
+
+查看是否在运行，以及需要时停止：
+
+```powershell
+Get-Process -Name dsserver
+Stop-Process -Name dsserver
+```
+
 ## 5. 重建阅读视图（Markdown）
 
 Markdown 由 JSONL 日志派生，可随时重新生成：

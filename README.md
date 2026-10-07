@@ -39,6 +39,23 @@ Point your Client's API base URL at the Bridge, for example
 `http://192.168.1.50:8787` (or `http://192.168.1.50:8787/v1`). The Client keeps
 sending its own API key; the Bridge passes it through and never stores it.
 
+### Run in the background (no terminal left open)
+
+To keep the Bridge running without leaving a terminal window open, start it as a
+hidden process that logs to files:
+
+```powershell
+Start-Process -WindowStyle Hidden -FilePath "uv" -ArgumentList "run", "dsserver" `
+  -RedirectStandardOutput "dsserver.log" -RedirectStandardError "dsserver.err.log"
+```
+
+Check it is running and stop it when needed:
+
+```powershell
+Get-Process -Name dsserver
+Stop-Process -Name dsserver
+```
+
 ## Rebuild the reading view
 
 Markdown is derived from the JSONL log and can be regenerated at any time:
