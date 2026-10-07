@@ -75,6 +75,8 @@ Open `http://<host>:8787/` in a browser. The same page lets you:
 - **Edit a work copy.** Generate an editable copy of selected Conversations, edit
   it as many times as you like, build an EPUB from it, then discard it. Editing a
   copy never touches the log or the rendered Conversations.
+- **Download results.** Every EPUB in `data/epub/out/`, and any work copy, can be
+  downloaded straight from the page.
 
 Renaming and building only rewrite what they must: the log stays the single
 source of truth, and everything on disk is derived and rebuildable.

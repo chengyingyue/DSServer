@@ -50,7 +50,7 @@ INDEX_HTML = """<!DOCTYPE html>
 </table>
 <table>
   <thead>
-    <tr><th>Out</th></tr>
+    <tr><th>Out</th><th></th></tr>
   </thead>
   <tbody id="epub-out"></tbody>
 </table>
@@ -61,6 +61,7 @@ INDEX_HTML = """<!DOCTYPE html>
   <button id="work-create">Create from selection</button>
   <button id="work-load">Load</button>
   <button id="work-save">Save</button>
+  <button id="work-download">Download</button>
   <button id="work-build">Build EPUB</button>
   <button id="work-discard">Discard</button>
   <span class="muted" id="work-status"></span>
@@ -192,9 +193,19 @@ async function loadEpub() {
   out.replaceChildren();
   for (const name of files.out) {
     const tr = document.createElement('tr');
+
     const file = document.createElement('td');
     file.textContent = name;
     tr.appendChild(file);
+
+    const actions = document.createElement('td');
+    const link = document.createElement('a');
+    link.href = '/api/epub/out/' + encodeURIComponent(name);
+    link.textContent = 'Download';
+    link.setAttribute('download', '');
+    actions.appendChild(link);
+    tr.appendChild(actions);
+
     out.appendChild(tr);
   }
 }
@@ -332,6 +343,15 @@ async function saveWork() {
   setWorkStatus(response.ok ? 'Saved.' : 'Failed: ' + (result.error || response.status));
 }
 
+async function downloadWork() {
+  const id = document.getElementById('work-id').value.trim();
+  if (!id) {
+    setWorkStatus('Enter a work copy id.');
+    return;
+  }
+  window.location = '/api/epub/work/' + encodeURIComponent(id) + '/download';
+}
+
 async function buildWork() {
   const id = document.getElementById('work-id').value.trim();
   if (!id) {
@@ -379,6 +399,7 @@ document.getElementById('build').addEventListener('click', buildEpub);
 document.getElementById('work-create').addEventListener('click', createWork);
 document.getElementById('work-load').addEventListener('click', loadWork);
 document.getElementById('work-save').addEventListener('click', saveWork);
+document.getElementById('work-download').addEventListener('click', downloadWork);
 document.getElementById('work-build').addEventListener('click', buildWork);
 document.getElementById('work-discard').addEventListener('click', discardWork);
 

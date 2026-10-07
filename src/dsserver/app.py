@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 
 from .build import build_epub, build_epub_from_document
 from .chat import ChatRequest, parse_chat_request, parse_chat_response
@@ -296,6 +296,16 @@ def create_app(
             converted.append({"input": name, "output": destination.name})
         return JSONResponse({"converted": converted, "failed": failed})
 
+    @app.get("/api/epub/out/{name}")
+    async def download_epub(name: str) -> Response:
+        safe = _epub_filename(name)
+        if safe is None:
+            return JSONResponse({"error": "invalid name"}, status_code=400)
+        path = config.epub_out_dir / safe
+        if not path.is_file():
+            return JSONResponse({"error": f"file not found: {safe}"}, status_code=404)
+        return FileResponse(path, media_type="application/epub+zip", filename=safe)
+
     @app.post("/api/epub/work")
     async def create_work_copy(request: Request) -> Response:
         payload = await read_json_object(request)
@@ -317,6 +327,15 @@ def create_app(
         except WorkCopyError:
             return JSONResponse({"error": "unknown work copy"}, status_code=404)
         return JSONResponse({"id": work_id, "content": content})
+
+    @app.get("/api/epub/work/{work_id}/download")
+    async def download_work_copy(work_id: str) -> Response:
+        try:
+            content = work_store.read(work_id)
+        except WorkCopyError:
+            return JSONResponse({"error": "unknown work copy"}, status_code=404)
+        headers = {"Content-Disposition": f'attachment; filename="{work_id}.md"'}
+        return Response(content=content, media_type="text/markdown", headers=headers)
 
     @app.put("/api/epub/work/{work_id}")
     async def save_work_copy(work_id: str, request: Request) -> Response:
