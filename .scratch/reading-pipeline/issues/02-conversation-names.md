@@ -4,7 +4,7 @@
 
 **Blocked by:** 01.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] A page is served at the Bridge root listing all Conversations (name, date, turn count).
 - [x] Renaming a Conversation persists a rename Record in the Facts Store referencing the Conversation by identity.

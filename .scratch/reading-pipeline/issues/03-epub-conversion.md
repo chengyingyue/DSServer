@@ -4,11 +4,11 @@
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] An EPUB placed in `data/epub/inbox/` can be converted, producing a valid EPUB in `data/epub/out/`.
-- [ ] The produced EPUB is a valid zip whose `mimetype` is the first entry and stored uncompressed, and contains the standard container/OPF structure.
-- [ ] The GUI offers converting a single file and scanning/processing everything in the inbox.
-- [ ] The conversion logic is a reusable module (not a `__main__` batch script); the original e-reader compatibility behaviour is preserved.
-- [ ] Malformed/unsupported input surfaces a clear error rather than corrupting output.
-- [ ] All existing tests still pass.
+- [x] An EPUB placed in `data/epub/inbox/` can be converted, producing a valid EPUB in `data/epub/out/`.
+- [x] The produced EPUB is a valid zip whose `mimetype` is the first entry and stored uncompressed, and contains the standard container/OPF structure.
+- [x] The GUI offers converting a single file and scanning/processing everything in the inbox.
+- [x] The conversion logic is a reusable module (not a `__main__` batch script); the original e-reader compatibility behaviour is preserved.
+- [x] Malformed/unsupported input surfaces a clear error rather than corrupting output.
+- [x] All existing tests still pass.

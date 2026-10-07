@@ -4,11 +4,11 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] After a chat request, only the affected Conversation's Markdown file and the index change on disk; other Conversation files keep identical contents and mtime.
-- [ ] A rendered file whose content has not changed is not rewritten (its mtime does not move).
-- [ ] The in-memory index is built by replaying the Facts Store at startup and is not persisted anywhere (it is a rebuildable cache, never a second source of truth).
-- [ ] Existing Markdown rendering rules, grouping rules, filenames, and the index listing are unchanged.
-- [ ] `render` (full rebuild from the Facts Store) still produces the same output as on the previous revision.
-- [ ] All existing tests still pass.
+- [x] After a chat request, only the affected Conversation's Markdown file and the index change on disk; other Conversation files keep identical contents and mtime.
+- [x] A rendered file whose content has not changed is not rewritten (its mtime does not move).
+- [x] The in-memory index is built by replaying the Facts Store at startup and is not persisted anywhere (it is a rebuildable cache, never a second source of truth).
+- [x] Existing Markdown rendering rules, grouping rules, filenames, and the index listing are unchanged.
+- [x] `render` (full rebuild from the Facts Store) still produces the same output as on the previous revision.
+- [x] All existing tests still pass.

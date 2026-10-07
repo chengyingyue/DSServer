@@ -4,7 +4,7 @@
 
 **Blocked by:** 03.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Selecting Conversations in the GUI builds a single EPUB containing their rendered contents.
 - [x] The built EPUB is a valid zip whose `mimetype` is the first entry and stored uncompressed, and contains the standard container/OPF structure plus one or more content documents.
