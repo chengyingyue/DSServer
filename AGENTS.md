@@ -1,5 +1,14 @@
 # DSServer — Agent Guide
 
+## Read first
+
+Orient yourself before starting work:
+
+- Project overview and setup: `README.md`
+- Domain vocabulary: `GLOSSARY.md`
+- Decision history: `docs/adr/`
+- Current feature work (specs + tickets): `.scratch/<feature>/`
+
 ## Agent skills
 
 ### Issue tracker

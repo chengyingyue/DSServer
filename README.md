@@ -71,4 +71,4 @@ uv run dsserver render
 
 To use the Bridge from outside the home, put it behind a free
 [Tailscale](https://tailscale.com/) network; no code or configuration change is
-needed.
+needed. See `Tailscale 配置指南.md` for the full setup steps.
