@@ -43,6 +43,18 @@ class Config:
     def index_path(self) -> Path:
         return self.store_dir / "index.md"
 
+    @property
+    def epub_dir(self) -> Path:
+        return self.store_dir / "epub"
+
+    @property
+    def epub_inbox_dir(self) -> Path:
+        return self.epub_dir / "inbox"
+
+    @property
+    def epub_out_dir(self) -> Path:
+        return self.epub_dir / "out"
+
 
 def load_config(path: str | Path = "config.toml") -> Config:
     config_path = Path(path)

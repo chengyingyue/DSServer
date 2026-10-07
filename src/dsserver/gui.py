@@ -24,6 +24,22 @@ INDEX_HTML = """<!DOCTYPE html>
   </thead>
   <tbody id="rows"></tbody>
 </table>
+
+<h1>EPUB</h1>
+<p class="muted">Convert EPUBs from the inbox into e-reader friendly copies in the outbox.</p>
+<p><button id="scan">Scan inbox</button> <span class="muted" id="epub-status"></span></p>
+<table>
+  <thead>
+    <tr><th>Inbox</th><th></th></tr>
+  </thead>
+  <tbody id="epub-inbox"></tbody>
+</table>
+<table>
+  <thead>
+    <tr><th>Out</th></tr>
+  </thead>
+  <tbody id="epub-out"></tbody>
+</table>
 <script>
 async function load() {
   const response = await fetch('/api/conversations');
@@ -73,7 +89,70 @@ async function rename(conversation) {
   await load();
 }
 
+function setEpubStatus(message) {
+  document.getElementById('epub-status').textContent = message;
+}
+
+async function loadEpub() {
+  const response = await fetch('/api/epub/files');
+  const files = await response.json();
+
+  const inbox = document.getElementById('epub-inbox');
+  inbox.replaceChildren();
+  for (const name of files.inbox) {
+    const tr = document.createElement('tr');
+
+    const file = document.createElement('td');
+    file.textContent = name;
+    tr.appendChild(file);
+
+    const actions = document.createElement('td');
+    const button = document.createElement('button');
+    button.textContent = 'Convert';
+    button.addEventListener('click', () => convert(name));
+    actions.appendChild(button);
+    tr.appendChild(actions);
+
+    inbox.appendChild(tr);
+  }
+
+  const out = document.getElementById('epub-out');
+  out.replaceChildren();
+  for (const name of files.out) {
+    const tr = document.createElement('tr');
+    const file = document.createElement('td');
+    file.textContent = name;
+    tr.appendChild(file);
+    out.appendChild(tr);
+  }
+}
+
+async function convert(name) {
+  const response = await fetch('/api/epub/convert', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name }),
+  });
+  const result = await response.json();
+  if (response.ok) {
+    setEpubStatus('Converted ' + result.input + ' -> ' + result.output);
+  } else {
+    setEpubStatus('Failed: ' + (result.error || response.status));
+  }
+  await loadEpub();
+}
+
+async function scan() {
+  const response = await fetch('/api/epub/scan', { method: 'POST' });
+  const result = await response.json();
+  setEpubStatus('Converted ' + result.converted.length + ', failed ' + result.failed.length);
+  await loadEpub();
+}
+
+document.getElementById('scan').addEventListener('click', scan);
+
 load();
+loadEpub();
 </script>
 </body>
 </html>

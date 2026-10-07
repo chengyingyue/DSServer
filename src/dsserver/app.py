@@ -4,6 +4,7 @@ import asyncio
 import time
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, AsyncIterator
 from urllib.parse import urlsplit
 
@@ -13,6 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 
 from .chat import ChatRequest, parse_chat_request, parse_chat_response
 from .config import Config
+from .epub import EpubError, convert_epub, list_epubs
 from .gui import INDEX_HTML
 from .markdown import (
     Conversation,
@@ -76,6 +78,15 @@ def _conversation_summary(conversation: Conversation) -> dict[str, Any]:
     }
 
 
+def _epub_filename(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    name = value.strip()
+    if not name or name in (".", "..") or Path(name).name != name:
+        return None
+    return name
+
+
 def _passthrough(upstream_response: httpx.Response) -> StreamingResponse:
     async def relay() -> AsyncIterator[bytes]:
         try:
@@ -111,6 +122,8 @@ def create_app(
     index = ConversationIndex.from_records(store.records)
     write_conversations_dir(config, index.conversations)
     write_index(config, index.conversations)
+    config.epub_inbox_dir.mkdir(parents=True, exist_ok=True)
+    config.epub_out_dir.mkdir(parents=True, exist_ok=True)
     write_lock = asyncio.Lock()
     upstream_host = urlsplit(config.upstream_base_url).netloc
 
@@ -183,6 +196,46 @@ def create_app(
                 stale.unlink(missing_ok=True)
             write_index(config, index.conversations)
         return JSONResponse(_conversation_summary(conversation))
+
+    @app.get("/api/epub/files")
+    async def list_epub_files() -> dict[str, list[str]]:
+        return {
+            "inbox": list_epubs(config.epub_inbox_dir),
+            "out": list_epubs(config.epub_out_dir),
+        }
+
+    @app.post("/api/epub/convert")
+    async def convert_epub_file(request: Request) -> Response:
+        try:
+            payload = await request.json()
+        except ValueError:
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        if not isinstance(payload, dict):
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        name = _epub_filename(payload.get("name"))
+        if name is None:
+            return JSONResponse({"error": "name is required"}, status_code=400)
+        source = config.epub_inbox_dir / name
+        if not source.is_file():
+            return JSONResponse({"error": f"file not found: {name}"}, status_code=404)
+        try:
+            destination = convert_epub(source, config.epub_out_dir)
+        except EpubError as error:
+            return JSONResponse({"error": str(error)}, status_code=422)
+        return JSONResponse({"input": name, "output": destination.name})
+
+    @app.post("/api/epub/scan")
+    async def scan_epub_inbox() -> JSONResponse:
+        converted: list[dict[str, str]] = []
+        failed: list[dict[str, str]] = []
+        for name in list_epubs(config.epub_inbox_dir):
+            try:
+                destination = convert_epub(config.epub_inbox_dir / name, config.epub_out_dir)
+            except EpubError as error:
+                failed.append({"input": name, "error": str(error)})
+                continue
+            converted.append({"input": name, "output": destination.name})
+        return JSONResponse({"converted": converted, "failed": failed})
 
     @app.api_route(
         "/{full_path:path}",
