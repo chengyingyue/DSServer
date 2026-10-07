@@ -8,6 +8,7 @@ from typing import Any
 
 CHAT_KIND = "chat"
 OTHER_KIND = "other"
+RENAME_KIND = "rename"
 
 
 def new_id() -> str:
@@ -89,3 +90,15 @@ def build_exchange(
         meta=meta,
         raw_sse=raw_sse,
     )
+
+
+def build_rename(key: str, branch: int, name: str, owner: str = "local") -> dict[str, Any]:
+    return {
+        "id": new_id(),
+        "owner": owner,
+        "ts": now_iso(),
+        "kind": RENAME_KIND,
+        "key": key,
+        "branch": branch,
+        "name": name,
+    }

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
+from .models import RENAME_KIND
 from .store import read_records
 
 SECTION_LABELS = {
@@ -67,6 +68,32 @@ def _title(msgs: list[dict[str, Any]]) -> str:
     return first_line[:60]
 
 
+_WINDOWS_RESERVED_STEMS = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{n}" for n in range(1, 10)),
+    *(f"LPT{n}" for n in range(1, 10)),
+}
+
+
+def sanitize_stem(name: str) -> str:
+    text = re.sub(r'[\x00-\x1f<>:"/\\|?*]+', "-", name)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = text.strip(". ")
+    if text.upper() in _WINDOWS_RESERVED_STEMS:
+        text = f"name{text}"
+    return text[:80].strip(". ") or "conversation"
+
+
+def _unique_filename(stem: str, used_names: set[str]) -> str:
+    candidate = f"{stem}.md"
+    counter = 2
+    while candidate.lower() in used_names:
+        candidate = f"{stem}-{counter}.md"
+        counter += 1
+    used_names.add(candidate.lower())
+    return candidate
+
+
 @dataclass
 class Turn:
     new_messages: list[dict[str, Any]]
@@ -85,6 +112,9 @@ class Conversation:
     title: str
     date: str
     model: str | None
+    branch: int = 0
+    name: str | None = None
+    name_ts: str = ""
     history: list[tuple[str, str]] = field(default_factory=list)
     turns: list[Turn] = field(default_factory=list)
 
@@ -101,18 +131,13 @@ def _new_conversation(
     stem = f"{date}-{slug}"
     if branch > 0:
         stem = f"{stem}-b{branch + 1}"
-    filename = f"{stem}.md"
-    counter = 2
-    while filename in used_names:
-        filename = f"{stem}-{counter}.md"
-        counter += 1
-    used_names.add(filename)
     return Conversation(
         key=key,
-        filename=filename,
+        filename=_unique_filename(stem, used_names),
         title=_title(msgs),
         date=date,
         model=(record.get("request") or {}).get("model"),
+        branch=branch,
     )
 
 
@@ -126,6 +151,12 @@ class ConversationIndex:
     def conversations(self) -> list[Conversation]:
         return list(self._order)
 
+    def get(self, key: str, branch: int = 0) -> Conversation | None:
+        branches = self._states.get(key)
+        if branches is None or branch < 0 or branch >= len(branches):
+            return None
+        return branches[branch]
+
     @classmethod
     def from_records(cls, records: list[dict[str, Any]]) -> "ConversationIndex":
         index = cls()
@@ -134,7 +165,10 @@ class ConversationIndex:
         return index
 
     def apply(self, record: dict[str, Any]) -> Conversation | None:
-        if record.get("kind") != "chat":
+        kind = record.get("kind")
+        if kind == RENAME_KIND:
+            return self._apply_rename(record)
+        if kind != "chat":
             return None
         request = record.get("request") or {}
         msgs = request.get("messages") or []
@@ -172,6 +206,29 @@ class ConversationIndex:
             )
         )
         conversation.history = signatures + [_signature(response_message)]
+        return conversation
+
+    def _apply_rename(self, record: dict[str, Any]) -> Conversation | None:
+        key = record.get("key")
+        if not isinstance(key, str):
+            return None
+        name = record.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return None
+        try:
+            branch = int(record.get("branch", 0) or 0)
+        except (TypeError, ValueError):
+            return None
+        conversation = self.get(key, branch)
+        if conversation is None:
+            return None
+        ts = str(record.get("ts", ""))
+        if conversation.name is not None and ts < conversation.name_ts:
+            return conversation
+        self._used_names.discard(conversation.filename.lower())
+        conversation.filename = _unique_filename(sanitize_stem(name), self._used_names)
+        conversation.name = name.strip()
+        conversation.name_ts = ts
         return conversation
 
 

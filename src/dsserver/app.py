@@ -9,12 +9,19 @@ from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
 from .chat import ChatRequest, parse_chat_request, parse_chat_response
 from .config import Config
-from .markdown import ConversationIndex, write_conversation, write_index
-from .models import CHAT_KIND, OTHER_KIND, build_client_info, build_exchange
+from .gui import INDEX_HTML
+from .markdown import (
+    Conversation,
+    ConversationIndex,
+    write_conversation,
+    write_conversations_dir,
+    write_index,
+)
+from .models import CHAT_KIND, OTHER_KIND, build_client_info, build_exchange, build_rename
 from .store import Store
 from .stream import StreamResult, tee_sse
 
@@ -57,6 +64,18 @@ def _chat_response_dict(
     return {"status": status, "usage": usage, "finish_reason": finish_reason, "message": message}
 
 
+def _conversation_summary(conversation: Conversation) -> dict[str, Any]:
+    return {
+        "key": conversation.key,
+        "branch": conversation.branch,
+        "name": conversation.name or conversation.title,
+        "title": conversation.title,
+        "date": conversation.date,
+        "turns": len(conversation.turns),
+        "filename": conversation.filename,
+    }
+
+
 def _passthrough(upstream_response: httpx.Response) -> StreamingResponse:
     async def relay() -> AsyncIterator[bytes]:
         try:
@@ -90,6 +109,8 @@ def create_app(
     )
     store = Store(config.log_path)
     index = ConversationIndex.from_records(store.records)
+    write_conversations_dir(config, index.conversations)
+    write_index(config, index.conversations)
     write_lock = asyncio.Lock()
     upstream_host = urlsplit(config.upstream_base_url).netloc
 
@@ -121,6 +142,47 @@ def create_app(
             {"latency_ms": latency_ms, "upstream": upstream_host},
         )
         await persist(record.to_dict(), markdown=False)
+
+    @app.get("/", response_class=HTMLResponse)
+    async def gui_root() -> HTMLResponse:
+        return HTMLResponse(INDEX_HTML)
+
+    @app.get("/api/conversations")
+    async def list_conversations() -> list[dict[str, Any]]:
+        return [_conversation_summary(conversation) for conversation in index.conversations]
+
+    @app.post("/api/conversations/{key}/rename")
+    async def rename_conversation(key: str, request: Request) -> Response:
+        try:
+            payload = await request.json()
+        except ValueError:
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        if not isinstance(payload, dict):
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        name = payload.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return JSONResponse({"error": "name is required"}, status_code=400)
+        try:
+            branch = int(payload.get("branch", 0) or 0)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "branch must be an integer"}, status_code=400)
+
+        async with write_lock:
+            before = index.get(key, branch)
+            if before is None:
+                return JSONResponse({"error": "unknown conversation"}, status_code=404)
+            old_filename = before.filename
+            record = build_rename(key, branch, name.strip())
+            await store.append(record)
+            conversation = index.apply(record)
+            if conversation is None:
+                return JSONResponse({"error": "rename could not be applied"}, status_code=409)
+            write_conversation(config, conversation)
+            if old_filename != conversation.filename:
+                stale = config.conversations_dir / old_filename
+                stale.unlink(missing_ok=True)
+            write_index(config, index.conversations)
+        return JSONResponse(_conversation_summary(conversation))
 
     @app.api_route(
         "/{full_path:path}",
