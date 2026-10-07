@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 from .build import build_epub, build_epub_from_document
 from .chat import ChatRequest, parse_chat_request, parse_chat_response
 from .config import Config
-from .epub import EpubError, convert_epub, list_epubs
+from .epub import EpubError, convert_epub, list_epubs, unique_output
 from .gui import INDEX_HTML
 from .markdown import (
     Conversation,
@@ -90,6 +90,16 @@ def _epub_filename(value: Any) -> str | None:
     return name
 
 
+async def read_json_object(request: Request) -> dict[str, Any] | JSONResponse:
+    try:
+        payload = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+    return payload
+
+
 def _passthrough(upstream_response: httpx.Response) -> StreamingResponse:
     async def relay() -> AsyncIterator[bytes]:
         try:
@@ -161,6 +171,26 @@ def create_app(
         )
         await persist(record.to_dict(), markdown=False)
 
+    def select_conversations(raw_items: Any) -> list[Conversation] | JSONResponse:
+        if not isinstance(raw_items, list) or not raw_items:
+            return JSONResponse({"error": "conversations is required"}, status_code=400)
+        selected: list[Conversation] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                return JSONResponse({"error": "invalid conversation entry"}, status_code=400)
+            key = item.get("key")
+            if not isinstance(key, str):
+                return JSONResponse({"error": "invalid conversation entry"}, status_code=400)
+            try:
+                branch = int(item.get("branch", 0) or 0)
+            except (TypeError, ValueError):
+                return JSONResponse({"error": "branch must be an integer"}, status_code=400)
+            conversation = index.get(key, branch)
+            if conversation is None:
+                return JSONResponse({"error": "unknown conversation"}, status_code=404)
+            selected.append(conversation)
+        return selected
+
     @app.get("/", response_class=HTMLResponse)
     async def gui_root() -> HTMLResponse:
         return HTMLResponse(INDEX_HTML)
@@ -171,12 +201,9 @@ def create_app(
 
     @app.post("/api/conversations/{key}/rename")
     async def rename_conversation(key: str, request: Request) -> Response:
-        try:
-            payload = await request.json()
-        except ValueError:
-            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
-        if not isinstance(payload, dict):
-            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        payload = await read_json_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
         name = payload.get("name")
         if not isinstance(name, str) or not name.strip():
             return JSONResponse({"error": "name is required"}, status_code=400)
@@ -185,12 +212,18 @@ def create_app(
         except (TypeError, ValueError):
             return JSONResponse({"error": "branch must be an integer"}, status_code=400)
 
+        trimmed = name.strip()
         async with write_lock:
             before = index.get(key, branch)
             if before is None:
                 return JSONResponse({"error": "unknown conversation"}, status_code=404)
+            if index.name_in_use(trimmed, before):
+                return JSONResponse(
+                    {"error": f'name "{trimmed}" is already used by another conversation'},
+                    status_code=409,
+                )
             old_filename = before.filename
-            record = build_rename(key, branch, name.strip())
+            record = build_rename(key, branch, trimmed)
             await store.append(record)
             conversation = index.apply(record)
             if conversation is None:
@@ -211,12 +244,9 @@ def create_app(
 
     @app.post("/api/epub/convert")
     async def convert_epub_file(request: Request) -> Response:
-        try:
-            payload = await request.json()
-        except ValueError:
-            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
-        if not isinstance(payload, dict):
-            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        payload = await read_json_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
         name = _epub_filename(payload.get("name"))
         if name is None:
             return JSONResponse({"error": "name is required"}, status_code=400)
@@ -228,6 +258,17 @@ def create_app(
         except EpubError as error:
             return JSONResponse({"error": str(error)}, status_code=422)
         return JSONResponse({"input": name, "output": destination.name})
+
+    @app.post("/api/epub/upload")
+    async def upload_epub(request: Request) -> Response:
+        name = _epub_filename(request.query_params.get("name"))
+        if name is None:
+            return JSONResponse({"error": "name is required"}, status_code=400)
+        if Path(name).suffix.lower() != ".epub":
+            return JSONResponse({"error": "file must be an .epub"}, status_code=400)
+        destination = unique_output(config.epub_inbox_dir, name)
+        destination.write_bytes(await request.body())
+        return JSONResponse({"name": destination.name})
 
     @app.post("/api/epub/scan")
     async def scan_epub_inbox() -> JSONResponse:
@@ -244,32 +285,13 @@ def create_app(
 
     @app.post("/api/epub/work")
     async def create_work_copy(request: Request) -> Response:
-        try:
-            payload = await request.json()
-        except ValueError:
-            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
-        if not isinstance(payload, dict):
-            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        payload = await read_json_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
 
-        raw_items = payload.get("conversations")
-        if not isinstance(raw_items, list) or not raw_items:
-            return JSONResponse({"error": "conversations is required"}, status_code=400)
-
-        selected: list[Conversation] = []
-        for item in raw_items:
-            if not isinstance(item, dict):
-                return JSONResponse({"error": "invalid conversation entry"}, status_code=400)
-            key = item.get("key")
-            if not isinstance(key, str):
-                return JSONResponse({"error": "invalid conversation entry"}, status_code=400)
-            try:
-                branch = int(item.get("branch", 0) or 0)
-            except (TypeError, ValueError):
-                return JSONResponse({"error": "branch must be an integer"}, status_code=400)
-            conversation = index.get(key, branch)
-            if conversation is None:
-                return JSONResponse({"error": "unknown conversation"}, status_code=404)
-            selected.append(conversation)
+        selected = select_conversations(payload.get("conversations"))
+        if isinstance(selected, JSONResponse):
+            return selected
 
         content = "\n\n".join(render_conversation(conversation) for conversation in selected)
         work_id = work_store.create(content)
@@ -285,12 +307,9 @@ def create_app(
 
     @app.put("/api/epub/work/{work_id}")
     async def save_work_copy(work_id: str, request: Request) -> Response:
-        try:
-            payload = await request.json()
-        except ValueError:
-            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
-        if not isinstance(payload, dict):
-            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        payload = await read_json_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
         content = payload.get("content")
         if not isinstance(content, str):
             return JSONResponse({"error": "content is required"}, status_code=400)
@@ -310,12 +329,9 @@ def create_app(
 
     @app.post("/api/epub/build")
     async def build_epub_book(request: Request) -> Response:
-        try:
-            payload = await request.json()
-        except ValueError:
-            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
-        if not isinstance(payload, dict):
-            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        payload = await read_json_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
 
         title = payload.get("title")
         if title is not None and not isinstance(title, str):
@@ -335,25 +351,9 @@ def create_app(
                 return JSONResponse({"error": str(error)}, status_code=422)
             return JSONResponse({"output": book.path.name, "title": book.title})
 
-        raw_items = payload.get("conversations")
-        if not isinstance(raw_items, list) or not raw_items:
-            return JSONResponse({"error": "conversations is required"}, status_code=400)
-
-        selected: list[Conversation] = []
-        for item in raw_items:
-            if not isinstance(item, dict):
-                return JSONResponse({"error": "invalid conversation entry"}, status_code=400)
-            key = item.get("key")
-            if not isinstance(key, str):
-                return JSONResponse({"error": "invalid conversation entry"}, status_code=400)
-            try:
-                branch = int(item.get("branch", 0) or 0)
-            except (TypeError, ValueError):
-                return JSONResponse({"error": "branch must be an integer"}, status_code=400)
-            conversation = index.get(key, branch)
-            if conversation is None:
-                return JSONResponse({"error": "unknown conversation"}, status_code=404)
-            selected.append(conversation)
+        selected = select_conversations(payload.get("conversations"))
+        if isinstance(selected, JSONResponse):
+            return selected
 
         try:
             book = build_epub(selected, config.epub_out_dir, title=title)

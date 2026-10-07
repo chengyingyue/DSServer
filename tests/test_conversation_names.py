@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 
 import httpx
@@ -163,16 +164,95 @@ async def test_rename_addresses_the_exact_branch_conversation(config):
     assert not any("-b2" in name for name in names)
 
 
-async def test_colliding_renames_are_disambiguated_deterministically(config):
+async def test_renaming_to_an_existing_name_is_rejected_with_a_conflict(config):
     app = build_app(config, sequence_handler([chat_response("4"), chat_response("blue")]))
     async with client_for(app) as client:
         await _capture(client, "What is 2+2?")
         await _capture(client, "Favourite colour?")
         listing = await _listing(client)
-        await _rename(client, listing[0], "Shared")
-        await _rename(client, listing[1], "Shared")
+        first = await _rename(client, listing[0], "Shared")
+        second = await _rename(client, listing[1], "Shared")
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert "error" in second.json()
+    assert "Shared" in second.json()["error"]
+    names = [path.name for path in conversation_files(config)]
+    assert "Shared.md" in names
+    assert "Shared-2.md" not in names
+    renames = [record for record in read_records(config) if record["kind"] == "rename"]
+    assert len(renames) == 1
+
+
+def _append_rename_records(
+    config, renames: list[tuple[dict, str, str]]
+) -> None:
+    with config.log_path.open("a", encoding="utf-8") as handle:
+        for index, (conversation, name, ts) in enumerate(renames):
+            handle.write(
+                json.dumps(
+                    {
+                        "id": f"rename-{index}",
+                        "owner": "local",
+                        "ts": ts,
+                        "kind": "rename",
+                        "key": conversation["key"],
+                        "branch": conversation["branch"],
+                        "name": name,
+                    }
+                )
+                + "\n"
+            )
+
+
+async def test_replay_keeps_colliding_names_deterministic(config):
+    app = build_app(config, sequence_handler([chat_response("4"), chat_response("blue")]))
+    async with client_for(app) as client:
+        await _capture(client, "What is 2+2?")
+        await _capture(client, "Favourite colour?")
+        listing = await _listing(client)
+
+    _append_rename_records(
+        config,
+        [
+            (listing[0], "Shared", "2024-01-01T00:00:00+00:00"),
+            (listing[1], "Shared", "2024-01-01T00:00:01+00:00"),
+        ],
+    )
+    build_app(config, sequence_handler([]))
 
     assert sorted(path.name for path in conversation_files(config)) == ["Shared-2.md", "Shared.md"]
+
+
+async def test_replay_awards_a_tie_to_the_later_record(config):
+    app = build_app(config, sequence_handler([chat_response("4")]))
+    async with client_for(app) as client:
+        await _capture(client, "What is 2+2?")
+        listing = await _listing(client)
+
+    tie = "2024-01-01T00:00:00+00:00"
+    _append_rename_records(config, [(listing[0], "First", tie), (listing[0], "Second", tie)])
+    build_app(config, sequence_handler([]))
+
+    assert [path.name for path in conversation_files(config)] == ["Second.md"]
+
+
+async def test_replay_ignores_a_later_record_with_an_earlier_timestamp(config):
+    app = build_app(config, sequence_handler([chat_response("4")]))
+    async with client_for(app) as client:
+        await _capture(client, "What is 2+2?")
+        listing = await _listing(client)
+
+    _append_rename_records(
+        config,
+        [
+            (listing[0], "First", "2024-01-01T00:00:02+00:00"),
+            (listing[0], "Second", "2024-01-01T00:00:01+00:00"),
+        ],
+    )
+    build_app(config, sequence_handler([]))
+
+    assert [path.name for path in conversation_files(config)] == ["First.md"]
 
 
 async def test_rename_only_rebuilds_the_affected_conversation_file(config):
@@ -205,6 +285,15 @@ async def test_bridge_root_serves_the_gui_page(config):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "/api/conversations" in response.text
+
+
+async def test_gui_offers_a_filter_and_surfaces_rename_errors(config):
+    app = build_app(config, sequence_handler([]))
+    async with client_for(app) as client:
+        response = await client.get("/")
+
+    assert 'id="filter"' in response.text
+    assert "Rename failed: ' + (result.error" in response.text
 
 
 async def test_local_gui_routes_are_not_forwarded_to_upstream(config):

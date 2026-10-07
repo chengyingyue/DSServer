@@ -170,6 +170,48 @@ async def test_convert_rejects_path_traversal_names(config):
     assert not (config.store_dir / "book.epub").exists()
 
 
+async def test_upload_stores_an_epub_in_the_inbox_then_converts(config):
+    _write_fixture(config.store_dir / "source.epub", marker="Uploaded")
+    data = (config.store_dir / "source.epub").read_bytes()
+    app = build_app(config, sequence_handler([]))
+    async with client_for(app) as client:
+        upload = await client.post("/api/epub/upload?name=book.epub", content=data)
+        listing = await client.get("/api/epub/files")
+        converted = await client.post("/api/epub/convert", json={"name": "book.epub"})
+
+    assert upload.status_code == 200
+    assert upload.json() == {"name": "book.epub"}
+    assert (config.epub_inbox_dir / "book.epub").read_bytes() == data
+    assert listing.json()["inbox"] == ["book.epub"]
+    assert converted.status_code == 200
+    assert "Uploaded" in _chapter(config.epub_out_dir / "book.epub")
+
+
+async def test_upload_does_not_overwrite_an_existing_inbox_file(config):
+    _write_fixture(config.epub_inbox_dir / "book.epub")
+    app = build_app(config, sequence_handler([]))
+    async with client_for(app) as client:
+        response = await client.post("/api/epub/upload?name=book.epub", content=b"replacement")
+
+    assert response.status_code == 200
+    assert response.json() == {"name": "book-2.epub"}
+    assert (config.epub_inbox_dir / "book-2.epub").read_bytes() == b"replacement"
+
+
+async def test_upload_rejects_a_missing_or_unsafe_name(config):
+    app = build_app(config, sequence_handler([]))
+    async with client_for(app) as client:
+        missing = await client.post("/api/epub/upload", content=b"x")
+        traversal = await client.post("/api/epub/upload?name=../escape.epub", content=b"x")
+        wrong_type = await client.post("/api/epub/upload?name=notes.txt", content=b"x")
+
+    assert missing.status_code == 400
+    assert traversal.status_code == 400
+    assert wrong_type.status_code == 400
+    assert list(config.epub_inbox_dir.glob("*")) == []
+    assert not (config.store_dir / "escape.epub").exists()
+
+
 async def test_api_epub_files_lists_inbox_and_out(config):
     _write_fixture(config.epub_inbox_dir / "one.epub")
     _write_fixture(config.epub_inbox_dir / "two.epub")
@@ -191,6 +233,8 @@ async def test_gui_page_offers_epub_conversion(config):
     assert response.status_code == 200
     assert "/api/epub/convert" in response.text
     assert "/api/epub/scan" in response.text
+    assert "/api/epub/upload" in response.text
+    assert 'type="file"' in response.text
 
 
 async def test_epub_routes_are_not_forwarded_to_upstream(config):

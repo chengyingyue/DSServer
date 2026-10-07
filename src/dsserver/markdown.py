@@ -9,6 +9,7 @@ from typing import Any
 
 from .config import Config
 from .models import RENAME_KIND
+from .naming import unique_name
 from .store import read_records
 
 SECTION_LABELS = {
@@ -85,11 +86,7 @@ def sanitize_stem(name: str) -> str:
 
 
 def _unique_filename(stem: str, used_names: set[str]) -> str:
-    candidate = f"{stem}.md"
-    counter = 2
-    while candidate.lower() in used_names:
-        candidate = f"{stem}-{counter}.md"
-        counter += 1
+    candidate = unique_name(f"{stem}.md", lambda name: name.lower() in used_names)
     used_names.add(candidate.lower())
     return candidate
 
@@ -115,6 +112,7 @@ class Conversation:
     branch: int = 0
     name: str | None = None
     name_ts: str = ""
+    name_order: int = 0
     history: list[tuple[str, str]] = field(default_factory=list)
     turns: list[Turn] = field(default_factory=list)
 
@@ -146,6 +144,7 @@ class ConversationIndex:
         self._states: dict[str, list[Conversation]] = {}
         self._order: list[Conversation] = []
         self._used_names: set[str] = set()
+        self._seq = 0
 
     @property
     def conversations(self) -> list[Conversation]:
@@ -157,6 +156,13 @@ class ConversationIndex:
             return None
         return branches[branch]
 
+    def name_in_use(self, name: str, conversation: Conversation) -> bool:
+        candidate = f"{sanitize_stem(name)}.md".lower()
+        return any(
+            other is not conversation and other.filename.lower() == candidate
+            for other in self._order
+        )
+
     @classmethod
     def from_records(cls, records: list[dict[str, Any]]) -> "ConversationIndex":
         index = cls()
@@ -165,9 +171,10 @@ class ConversationIndex:
         return index
 
     def apply(self, record: dict[str, Any]) -> Conversation | None:
+        self._seq += 1
         kind = record.get("kind")
         if kind == RENAME_KIND:
-            return self._apply_rename(record)
+            return self._apply_rename(record, self._seq)
         if kind != "chat":
             return None
         request = record.get("request") or {}
@@ -208,7 +215,7 @@ class ConversationIndex:
         conversation.history = signatures + [_signature(response_message)]
         return conversation
 
-    def _apply_rename(self, record: dict[str, Any]) -> Conversation | None:
+    def _apply_rename(self, record: dict[str, Any], order: int) -> Conversation | None:
         key = record.get("key")
         if not isinstance(key, str):
             return None
@@ -223,12 +230,16 @@ class ConversationIndex:
         if conversation is None:
             return None
         ts = str(record.get("ts", ""))
-        if conversation.name is not None and ts < conversation.name_ts:
+        if conversation.name is not None and (ts, order) < (
+            conversation.name_ts,
+            conversation.name_order,
+        ):
             return conversation
         self._used_names.discard(conversation.filename.lower())
         conversation.filename = _unique_filename(sanitize_stem(name), self._used_names)
         conversation.name = name.strip()
         conversation.name_ts = ts
+        conversation.name_order = order
         return conversation
 
 

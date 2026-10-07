@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import html
-import os
 import re
-import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from .epub import EpubError, repack_epub, unique_output
+from .epub import EpubError, publish_epub, repack_epub, unique_output
 from .markdown import Conversation, render_conversation, sanitize_stem
 
 MIMETYPE = "application/epub+zip"
@@ -197,21 +195,13 @@ def _write_staging(root: str | Path, title: str, documents: list[tuple[str, str]
 
 def _publish(documents: list[tuple[str, str]], book_title: str, out_dir: str | Path) -> BuiltBook:
     destination_dir = Path(out_dir)
-    destination_dir.mkdir(parents=True, exist_ok=True)
     destination = unique_output(destination_dir, f"{sanitize_stem(book_title)}.epub")
 
-    handle, tmp_name = tempfile.mkstemp(suffix=".epub", dir=destination_dir)
-    os.close(handle)
-    try:
-        with tempfile.TemporaryDirectory() as work:
-            _write_staging(work, book_title, documents)
-            repack_epub(work, tmp_name)
-        os.replace(tmp_name, destination)
-    except Exception:
-        if os.path.exists(tmp_name):
-            os.remove(tmp_name)
-        raise
+    def build(work: str, tmp_name: str) -> None:
+        _write_staging(work, book_title, documents)
+        repack_epub(work, tmp_name)
 
+    publish_epub(destination, build)
     return BuiltBook(path=destination, title=book_title)
 
 

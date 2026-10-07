@@ -4,10 +4,13 @@ import os
 import re
 import tempfile
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from lxml import etree  # type: ignore[import-untyped]
+
+from .naming import unique_name
 
 ITALIC_MARK = "*"
 STRIKE_MARK = "~~"
@@ -335,17 +338,25 @@ def list_epubs(directory: str | Path) -> list[str]:
 
 
 def unique_output(out_dir: Path, name: str) -> Path:
-    candidate = out_dir / name
-    if not candidate.exists():
-        return candidate
-    stem = candidate.stem
-    suffix = candidate.suffix
-    index = 2
-    while True:
-        candidate = out_dir / f"{stem}-{index}{suffix}"
-        if not candidate.exists():
-            return candidate
-        index += 1
+    return out_dir / unique_name(name, lambda candidate: (out_dir / candidate).exists())
+
+
+def publish_epub(destination: Path, build: Callable[[str, str], None]) -> Path:
+    destination_dir = destination.parent
+    destination_dir.mkdir(parents=True, exist_ok=True)
+
+    handle, tmp_name = tempfile.mkstemp(suffix=".epub", dir=destination_dir)
+    os.close(handle)
+    try:
+        with tempfile.TemporaryDirectory() as work:
+            build(work, tmp_name)
+        os.replace(tmp_name, destination)
+    except Exception:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
+        raise
+
+    return destination
 
 
 def convert_epub(src: str | Path, out_dir: str | Path) -> Path:
@@ -363,20 +374,11 @@ def convert_epub(src: str | Path, out_dir: str | Path) -> Path:
         raise EpubError(f"{source.name} is not a valid EPUB (missing META-INF/container.xml)")
 
     destination_dir = Path(out_dir)
-    destination_dir.mkdir(parents=True, exist_ok=True)
     destination = unique_output(destination_dir, source.name)
 
-    handle, tmp_name = tempfile.mkstemp(suffix=".epub", dir=destination_dir)
-    os.close(handle)
-    try:
-        with tempfile.TemporaryDirectory() as work:
-            unpack_epub(str(source), work)
-            convert_styles(work)
-            repack_epub(work, tmp_name)
-        os.replace(tmp_name, destination)
-    except Exception:
-        if os.path.exists(tmp_name):
-            os.remove(tmp_name)
-        raise
+    def build(work: str, tmp_name: str) -> None:
+        unpack_epub(str(source), work)
+        convert_styles(work)
+        repack_epub(work, tmp_name)
 
-    return destination
+    return publish_epub(destination, build)

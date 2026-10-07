@@ -40,6 +40,14 @@ _Avoid_: chat, thread, session；聊天、线程、会话记录
 The human-readable label identifying a Conversation, shown as the filename of its rendered Markdown. Owned by the human and stored as a Record in the Facts Store — not inferred from message content once set.
 _Avoid_: title, filename, slug；标题、文件名
 
+**Conversation Identity**（会话标识）:
+The pair of a Conversation's **key** and its **branch**, which together address exactly one Conversation. Used when a Conversation must be referenced unambiguously, such as when selecting Conversations to build or rename.
+_Avoid_: id, address, ref；编号、地址
+
+**Work Copy**（工作副本）:
+An editable, disposable copy of one or more Conversations made for refinement before being packaged into an EPUB. Edits to a Work Copy never change the original Conversations or the Facts Store.
+_Avoid_: draft, edit, snippet；草稿、编辑、片段
+
 **Rendered View**（派生视图）:
 Any `.md` file produced from the Facts Store — the per-Conversation files and the index. Disposable and rebuildable; their identity is the Conversation they render, not their filename.
 _Avoid_: output, export, artifact；输出、导出、产物

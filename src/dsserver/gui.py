@@ -18,6 +18,7 @@ INDEX_HTML = """<!DOCTYPE html>
 <body>
 <h1>Conversations</h1>
 <p class="muted">Rename a Conversation to choose its Markdown filename.</p>
+<p><input id="filter" type="text" placeholder="Filter conversations by name"></p>
 <table>
   <thead>
     <tr><th></th><th>Name</th><th>Date</th><th>Turns</th><th></th></tr>
@@ -33,6 +34,11 @@ INDEX_HTML = """<!DOCTYPE html>
   <span class="muted" id="build-status"></span>
 </p>
 <p><button id="scan">Scan inbox</button> <span class="muted" id="epub-status"></span></p>
+<p>
+  <input id="epub-upload" type="file" accept=".epub">
+  <button id="upload">Upload to inbox</button>
+  <span class="muted" id="upload-status"></span>
+</p>
 <table>
   <thead>
     <tr><th>Inbox</th><th></th></tr>
@@ -96,6 +102,7 @@ async function load() {
 
     rows.appendChild(tr);
   }
+  applyFilter();
 }
 
 async function rename(conversation) {
@@ -109,10 +116,18 @@ async function rename(conversation) {
       body: JSON.stringify({ name: name.trim(), branch: conversation.branch }),
     },
   );
+  const result = await response.json();
   if (!response.ok) {
-    window.alert('Rename failed: ' + response.status);
+    window.alert('Rename failed: ' + (result.error || response.status));
   }
   await load();
+}
+
+function applyFilter() {
+  const query = document.getElementById('filter').value.trim().toLowerCase();
+  for (const row of document.querySelectorAll('#rows tr')) {
+    row.style.display = row.textContent.toLowerCase().includes(query) ? '' : 'none';
+  }
 }
 
 function setEpubStatus(message) {
@@ -172,6 +187,29 @@ async function scan() {
   const response = await fetch('/api/epub/scan', { method: 'POST' });
   const result = await response.json();
   setEpubStatus('Converted ' + result.converted.length + ', failed ' + result.failed.length);
+  await loadEpub();
+}
+
+async function upload() {
+  const input = document.getElementById('epub-upload');
+  const status = document.getElementById('upload-status');
+  if (!input.files.length) {
+    status.textContent = 'Choose an EPUB first.';
+    return;
+  }
+  const file = input.files[0];
+  const response = await fetch('/api/epub/upload?name=' + encodeURIComponent(file.name), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/epub+zip' },
+    body: file,
+  });
+  const result = await response.json();
+  if (response.ok) {
+    status.textContent = 'Uploaded ' + result.name;
+    input.value = '';
+  } else {
+    status.textContent = 'Failed: ' + (result.error || response.status);
+  }
   await loadEpub();
 }
 
@@ -301,6 +339,8 @@ async function discardWork() {
 }
 
 document.getElementById('scan').addEventListener('click', scan);
+document.getElementById('upload').addEventListener('click', upload);
+document.getElementById('filter').addEventListener('input', applyFilter);
 document.getElementById('build').addEventListener('click', buildEpub);
 document.getElementById('work-create').addEventListener('click', createWork);
 document.getElementById('work-load').addEventListener('click', loadWork);
