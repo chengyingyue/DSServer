@@ -20,13 +20,18 @@ INDEX_HTML = """<!DOCTYPE html>
 <p class="muted">Rename a Conversation to choose its Markdown filename.</p>
 <table>
   <thead>
-    <tr><th>Name</th><th>Date</th><th>Turns</th><th></th></tr>
+    <tr><th></th><th>Name</th><th>Date</th><th>Turns</th><th></th></tr>
   </thead>
   <tbody id="rows"></tbody>
 </table>
 
 <h1>EPUB</h1>
-<p class="muted">Convert EPUBs from the inbox into e-reader friendly copies in the outbox.</p>
+<p class="muted">Tick Conversations and build one EPUB, or convert EPUBs from the inbox into e-reader friendly copies in the outbox.</p>
+<p>
+  <input id="build-title" type="text" placeholder="Book title (optional)">
+  <button id="build">Build EPUB</button>
+  <span class="muted" id="build-status"></span>
+</p>
 <p><button id="scan">Scan inbox</button> <span class="muted" id="epub-status"></span></p>
 <table>
   <thead>
@@ -48,6 +53,14 @@ async function load() {
   rows.replaceChildren();
   for (const conversation of conversations) {
     const tr = document.createElement('tr');
+
+    const select = document.createElement('td');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.dataset.key = conversation.key;
+    checkbox.dataset.branch = String(conversation.branch);
+    select.appendChild(checkbox);
+    tr.appendChild(select);
 
     const name = document.createElement('td');
     name.textContent = conversation.name;
@@ -149,7 +162,40 @@ async function scan() {
   await loadEpub();
 }
 
+function selectedConversations() {
+  const selected = [];
+  for (const checkbox of document.querySelectorAll('#rows input[type=checkbox]:checked')) {
+    selected.push({ key: checkbox.dataset.key, branch: Number(checkbox.dataset.branch) });
+  }
+  return selected;
+}
+
+async function buildEpub() {
+  const conversations = selectedConversations();
+  const status = document.getElementById('build-status');
+  if (conversations.length === 0) {
+    status.textContent = 'Select at least one Conversation.';
+    return;
+  }
+  const title = document.getElementById('build-title').value.trim();
+  const body = { conversations: conversations };
+  if (title) body.title = title;
+  const response = await fetch('/api/epub/build', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const result = await response.json();
+  if (response.ok) {
+    status.textContent = 'Built ' + result.output;
+  } else {
+    status.textContent = 'Failed: ' + (result.error || response.status);
+  }
+  await loadEpub();
+}
+
 document.getElementById('scan').addEventListener('click', scan);
+document.getElementById('build').addEventListener('click', buildEpub);
 
 load();
 loadEpub();

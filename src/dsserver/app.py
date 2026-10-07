@@ -12,6 +12,7 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
+from .build import build_epub
 from .chat import ChatRequest, parse_chat_request, parse_chat_response
 from .config import Config
 from .epub import EpubError, convert_epub, list_epubs
@@ -236,6 +237,44 @@ def create_app(
                 continue
             converted.append({"input": name, "output": destination.name})
         return JSONResponse({"converted": converted, "failed": failed})
+
+    @app.post("/api/epub/build")
+    async def build_epub_book(request: Request) -> Response:
+        try:
+            payload = await request.json()
+        except ValueError:
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        if not isinstance(payload, dict):
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        raw_items = payload.get("conversations")
+        if not isinstance(raw_items, list) or not raw_items:
+            return JSONResponse({"error": "conversations is required"}, status_code=400)
+
+        selected: list[Conversation] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                return JSONResponse({"error": "invalid conversation entry"}, status_code=400)
+            key = item.get("key")
+            if not isinstance(key, str):
+                return JSONResponse({"error": "invalid conversation entry"}, status_code=400)
+            try:
+                branch = int(item.get("branch", 0) or 0)
+            except (TypeError, ValueError):
+                return JSONResponse({"error": "branch must be an integer"}, status_code=400)
+            conversation = index.get(key, branch)
+            if conversation is None:
+                return JSONResponse({"error": "unknown conversation"}, status_code=404)
+            selected.append(conversation)
+
+        title = payload.get("title")
+        if title is not None and not isinstance(title, str):
+            return JSONResponse({"error": "title must be a string"}, status_code=400)
+
+        try:
+            book = build_epub(selected, config.epub_out_dir, title=title)
+        except EpubError as error:
+            return JSONResponse({"error": str(error)}, status_code=422)
+        return JSONResponse({"output": book.path.name, "title": book.title})
 
     @app.api_route(
         "/{full_path:path}",

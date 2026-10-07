@@ -334,7 +334,7 @@ def list_epubs(directory: str | Path) -> list[str]:
     return sorted(p.name for p in path.iterdir() if p.is_file() and p.suffix.lower() == ".epub")
 
 
-def _unique_output(out_dir: Path, name: str) -> Path:
+def unique_output(out_dir: Path, name: str) -> Path:
     candidate = out_dir / name
     if not candidate.exists():
         return candidate
@@ -364,7 +364,7 @@ def convert_epub(src: str | Path, out_dir: str | Path) -> Path:
 
     destination_dir = Path(out_dir)
     destination_dir.mkdir(parents=True, exist_ok=True)
-    destination = _unique_output(destination_dir, source.name)
+    destination = unique_output(destination_dir, source.name)
 
     handle, tmp_name = tempfile.mkstemp(suffix=".epub", dir=destination_dir)
     os.close(handle)
