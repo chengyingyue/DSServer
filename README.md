@@ -3,7 +3,8 @@
 A local, self-hosted **Bridge** that sits between an OpenAI-compatible Client and
 DeepSeek. It forwards traffic byte-for-byte, records every chat Exchange to an
 append-only JSONL log, and renders human-readable Markdown conversations that
-clearly separate app-injected (system) prompts from human input.
+clearly separate app-injected (system) prompts from human input. A built-in web
+page lets you name conversations and run an EPUB pipeline for your e-reader.
 
 ## Requirements
 
@@ -56,6 +57,25 @@ Get-Process -Name dsserver
 Stop-Process -Name dsserver
 ```
 
+## The web GUI
+
+Open `http://<host>:8787/` in a browser. The same page lets you:
+
+- **Browse and name Conversations.** Every Conversation is listed; give any of
+  them a name and it becomes that Conversation's Markdown filename. The name is
+  stored as a Record in the log, so it survives a rebuild and a restart, and
+  rendering never overwrites it.
+- **Convert EPUBs.** Drop EPUBs into `data/epub/inbox/`, or upload one, and
+  convert them into e-reader-friendly copies in `data/epub/out/`.
+- **Build an EPUB from Conversations.** Tick the Conversations you want and get a
+  single EPUB of their contents.
+- **Edit a work copy.** Generate an editable copy of selected Conversations, edit
+  it as many times as you like, build an EPUB from it, then discard it. Editing a
+  copy never touches the log or the rendered Conversations.
+
+Renaming and building only rewrite what they must: the log stays the single
+source of truth, and everything on disk is derived and rebuildable.
+
 ## Rebuild the reading view
 
 Markdown is derived from the JSONL log and can be regenerated at any time:
@@ -66,9 +86,13 @@ uv run dsserver render
 
 ## Where the data lives
 
-- `data/exchanges.jsonl` — the append-only truth log, one Exchange per line
+- `data/exchanges.jsonl` — the append-only truth log, one Exchange per line (also
+  holds Conversation rename Records)
 - `data/conversations/*.md` — the Markdown reading view
 - `data/index.md` — the list of conversations
+- `data/epub/inbox/` — EPUBs to convert (drop files here, or upload)
+- `data/epub/work/` — editable work copies (owned by the EPUB pipeline)
+- `data/epub/out/` — converted and built EPUBs
 
 ## Home LAN setup
 
