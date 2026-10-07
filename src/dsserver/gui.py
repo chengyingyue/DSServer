@@ -45,6 +45,19 @@ INDEX_HTML = """<!DOCTYPE html>
   </thead>
   <tbody id="epub-out"></tbody>
 </table>
+
+<h1>Work copy</h1>
+<p class="muted">Create an editable copy of the ticked Conversations, refine it, build an EPUB from it, then discard it. Editing never changes the original Conversations or the log.</p>
+<p>
+  <button id="work-create">Create from selection</button>
+  <button id="work-load">Load</button>
+  <button id="work-save">Save</button>
+  <button id="work-build">Build EPUB</button>
+  <button id="work-discard">Discard</button>
+  <span class="muted" id="work-status"></span>
+</p>
+<p><input id="work-id" type="text" placeholder="Work copy id" size="40"></p>
+<p><textarea id="work-content" rows="16" cols="80"></textarea></p>
 <script>
 async function load() {
   const response = await fetch('/api/conversations');
@@ -194,8 +207,106 @@ async function buildEpub() {
   await loadEpub();
 }
 
+function setWorkStatus(message) {
+  document.getElementById('work-status').textContent = message;
+}
+
+async function createWork() {
+  const conversations = selectedConversations();
+  if (conversations.length === 0) {
+    setWorkStatus('Select at least one Conversation.');
+    return;
+  }
+  const response = await fetch('/api/epub/work', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversations: conversations }),
+  });
+  const result = await response.json();
+  if (!response.ok) {
+    setWorkStatus('Failed: ' + (result.error || response.status));
+    return;
+  }
+  document.getElementById('work-id').value = result.id;
+  document.getElementById('work-content').value = result.content;
+  setWorkStatus('Created work copy.');
+}
+
+async function loadWork() {
+  const id = document.getElementById('work-id').value.trim();
+  if (!id) {
+    setWorkStatus('Enter a work copy id.');
+    return;
+  }
+  const response = await fetch('/api/epub/work/' + encodeURIComponent(id));
+  const result = await response.json();
+  if (!response.ok) {
+    setWorkStatus('Failed: ' + (result.error || response.status));
+    return;
+  }
+  document.getElementById('work-content').value = result.content;
+  setWorkStatus('Loaded work copy.');
+}
+
+async function saveWork() {
+  const id = document.getElementById('work-id').value.trim();
+  if (!id) {
+    setWorkStatus('Enter a work copy id.');
+    return;
+  }
+  const response = await fetch('/api/epub/work/' + encodeURIComponent(id), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: document.getElementById('work-content').value }),
+  });
+  const result = await response.json();
+  setWorkStatus(response.ok ? 'Saved.' : 'Failed: ' + (result.error || response.status));
+}
+
+async function buildWork() {
+  const id = document.getElementById('work-id').value.trim();
+  if (!id) {
+    setWorkStatus('Enter a work copy id.');
+    return;
+  }
+  const response = await fetch('/api/epub/build', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ work: id }),
+  });
+  const result = await response.json();
+  if (response.ok) {
+    setWorkStatus('Built ' + result.output);
+  } else {
+    setWorkStatus('Failed: ' + (result.error || response.status));
+  }
+  await loadEpub();
+}
+
+async function discardWork() {
+  const id = document.getElementById('work-id').value.trim();
+  if (!id) {
+    setWorkStatus('Enter a work copy id.');
+    return;
+  }
+  const response = await fetch('/api/epub/work/' + encodeURIComponent(id), { method: 'DELETE' });
+  const result = await response.json();
+  if (response.ok) {
+    document.getElementById('work-id').value = '';
+    document.getElementById('work-content').value = '';
+    setWorkStatus('Discarded.');
+  } else {
+    setWorkStatus('Failed: ' + (result.error || response.status));
+  }
+}
+
 document.getElementById('scan').addEventListener('click', scan);
 document.getElementById('build').addEventListener('click', buildEpub);
+document.getElementById('work-create').addEventListener('click', createWork);
+document.getElementById('work-load').addEventListener('click', loadWork);
+document.getElementById('work-save').addEventListener('click', saveWork);
+document.getElementById('work-build').addEventListener('click', buildWork);
+document.getElementById('work-discard').addEventListener('click', discardWork);
 
 load();
 loadEpub();

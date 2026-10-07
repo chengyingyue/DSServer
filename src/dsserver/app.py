@@ -12,7 +12,7 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
-from .build import build_epub
+from .build import build_epub, build_epub_from_document
 from .chat import ChatRequest, parse_chat_request, parse_chat_response
 from .config import Config
 from .epub import EpubError, convert_epub, list_epubs
@@ -20,6 +20,7 @@ from .gui import INDEX_HTML
 from .markdown import (
     Conversation,
     ConversationIndex,
+    render_conversation,
     write_conversation,
     write_conversations_dir,
     write_index,
@@ -27,6 +28,7 @@ from .markdown import (
 from .models import CHAT_KIND, OTHER_KIND, build_client_info, build_exchange, build_rename
 from .store import Store
 from .stream import StreamResult, tee_sse
+from .work import WorkCopyError, WorkStore
 
 HOP_BY_HOP_HEADERS = {
     "connection",
@@ -125,6 +127,8 @@ def create_app(
     write_index(config, index.conversations)
     config.epub_inbox_dir.mkdir(parents=True, exist_ok=True)
     config.epub_out_dir.mkdir(parents=True, exist_ok=True)
+    config.epub_work_dir.mkdir(parents=True, exist_ok=True)
+    work_store = WorkStore(config.epub_work_dir)
     write_lock = asyncio.Lock()
     upstream_host = urlsplit(config.upstream_base_url).netloc
 
@@ -238,14 +242,15 @@ def create_app(
             converted.append({"input": name, "output": destination.name})
         return JSONResponse({"converted": converted, "failed": failed})
 
-    @app.post("/api/epub/build")
-    async def build_epub_book(request: Request) -> Response:
+    @app.post("/api/epub/work")
+    async def create_work_copy(request: Request) -> Response:
         try:
             payload = await request.json()
         except ValueError:
             return JSONResponse({"error": "invalid JSON body"}, status_code=400)
         if not isinstance(payload, dict):
             return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+
         raw_items = payload.get("conversations")
         if not isinstance(raw_items, list) or not raw_items:
             return JSONResponse({"error": "conversations is required"}, status_code=400)
@@ -266,9 +271,89 @@ def create_app(
                 return JSONResponse({"error": "unknown conversation"}, status_code=404)
             selected.append(conversation)
 
+        content = "\n\n".join(render_conversation(conversation) for conversation in selected)
+        work_id = work_store.create(content)
+        return JSONResponse({"id": work_id, "content": content})
+
+    @app.get("/api/epub/work/{work_id}")
+    async def read_work_copy(work_id: str) -> Response:
+        try:
+            content = work_store.read(work_id)
+        except WorkCopyError:
+            return JSONResponse({"error": "unknown work copy"}, status_code=404)
+        return JSONResponse({"id": work_id, "content": content})
+
+    @app.put("/api/epub/work/{work_id}")
+    async def save_work_copy(work_id: str, request: Request) -> Response:
+        try:
+            payload = await request.json()
+        except ValueError:
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        if not isinstance(payload, dict):
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        content = payload.get("content")
+        if not isinstance(content, str):
+            return JSONResponse({"error": "content is required"}, status_code=400)
+        try:
+            work_store.save(work_id, content)
+        except WorkCopyError:
+            return JSONResponse({"error": "unknown work copy"}, status_code=404)
+        return JSONResponse({"id": work_id, "content": content})
+
+    @app.delete("/api/epub/work/{work_id}")
+    async def discard_work_copy(work_id: str) -> Response:
+        try:
+            work_store.discard(work_id)
+        except WorkCopyError:
+            return JSONResponse({"error": "unknown work copy"}, status_code=404)
+        return JSONResponse({"id": work_id, "discarded": True})
+
+    @app.post("/api/epub/build")
+    async def build_epub_book(request: Request) -> Response:
+        try:
+            payload = await request.json()
+        except ValueError:
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        if not isinstance(payload, dict):
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+
         title = payload.get("title")
         if title is not None and not isinstance(title, str):
             return JSONResponse({"error": "title must be a string"}, status_code=400)
+
+        work_id = payload.get("work")
+        if work_id is not None:
+            if not isinstance(work_id, str):
+                return JSONResponse({"error": "work must be a string"}, status_code=400)
+            try:
+                markdown = work_store.read(work_id)
+            except WorkCopyError:
+                return JSONResponse({"error": "unknown work copy"}, status_code=404)
+            try:
+                book = build_epub_from_document(markdown, config.epub_out_dir, title=title)
+            except EpubError as error:
+                return JSONResponse({"error": str(error)}, status_code=422)
+            return JSONResponse({"output": book.path.name, "title": book.title})
+
+        raw_items = payload.get("conversations")
+        if not isinstance(raw_items, list) or not raw_items:
+            return JSONResponse({"error": "conversations is required"}, status_code=400)
+
+        selected: list[Conversation] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                return JSONResponse({"error": "invalid conversation entry"}, status_code=400)
+            key = item.get("key")
+            if not isinstance(key, str):
+                return JSONResponse({"error": "invalid conversation entry"}, status_code=400)
+            try:
+                branch = int(item.get("branch", 0) or 0)
+            except (TypeError, ValueError):
+                return JSONResponse({"error": "branch must be an integer"}, status_code=400)
+            conversation = index.get(key, branch)
+            if conversation is None:
+                return JSONResponse({"error": "unknown conversation"}, status_code=404)
+            selected.append(conversation)
 
         try:
             book = build_epub(selected, config.epub_out_dir, title=title)

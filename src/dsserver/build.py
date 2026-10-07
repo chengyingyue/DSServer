@@ -170,30 +170,49 @@ def _default_title(conversations: list[Conversation]) -> str:
     return f"{labels[0]} + {len(labels) - 1} more"
 
 
-def _write_staging(root: str | Path, title: str, conversations: list[Conversation]) -> None:
+def _write_staging(root: str | Path, title: str, documents: list[tuple[str, str]]) -> None:
     base = Path(root)
     (base / "META-INF").mkdir(parents=True, exist_ok=True)
     (base / "OEBPS").mkdir(parents=True, exist_ok=True)
     (base / "mimetype").write_text(MIMETYPE, encoding="utf-8")
     (base / "META-INF" / "container.xml").write_text(CONTAINER_XML, encoding="utf-8")
 
-    documents: list[tuple[str, str]] = []
-    for position, conversation in enumerate(conversations, start=1):
+    manifest: list[tuple[str, str]] = []
+    for position, (document_title, markdown) in enumerate(documents, start=1):
         name = f"chapter{position}.xhtml"
-        document_title = _conversation_label(conversation)
-        body = markdown_to_xhtml(render_conversation(conversation))
+        body = markdown_to_xhtml(markdown)
         (base / "OEBPS" / name).write_text(
             _content_document(document_title, body), encoding="utf-8"
         )
-        documents.append((name, document_title))
+        manifest.append((name, document_title))
 
     identifier = f"urn:uuid:{uuid.uuid4()}"
     (base / "OEBPS" / "content.opf").write_text(
-        _opf(title, identifier, documents), encoding="utf-8"
+        _opf(title, identifier, manifest), encoding="utf-8"
     )
     (base / "OEBPS" / "toc.ncx").write_text(
-        _ncx(title, identifier, documents), encoding="utf-8"
+        _ncx(title, identifier, manifest), encoding="utf-8"
     )
+
+
+def _publish(documents: list[tuple[str, str]], book_title: str, out_dir: str | Path) -> BuiltBook:
+    destination_dir = Path(out_dir)
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = unique_output(destination_dir, f"{sanitize_stem(book_title)}.epub")
+
+    handle, tmp_name = tempfile.mkstemp(suffix=".epub", dir=destination_dir)
+    os.close(handle)
+    try:
+        with tempfile.TemporaryDirectory() as work:
+            _write_staging(work, book_title, documents)
+            repack_epub(work, tmp_name)
+        os.replace(tmp_name, destination)
+    except Exception:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
+        raise
+
+    return BuiltBook(path=destination, title=book_title)
 
 
 def build_epub(
@@ -205,20 +224,30 @@ def build_epub(
         raise EpubError("no conversations selected")
 
     book_title = title.strip() if isinstance(title, str) and title.strip() else _default_title(conversations)
-    destination_dir = Path(out_dir)
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    destination = unique_output(destination_dir, f"{sanitize_stem(book_title)}.epub")
+    documents = [
+        (_conversation_label(conversation), render_conversation(conversation))
+        for conversation in conversations
+    ]
+    return _publish(documents, book_title, out_dir)
 
-    handle, tmp_name = tempfile.mkstemp(suffix=".epub", dir=destination_dir)
-    os.close(handle)
-    try:
-        with tempfile.TemporaryDirectory() as work:
-            _write_staging(work, book_title, conversations)
-            repack_epub(work, tmp_name)
-        os.replace(tmp_name, destination)
-    except Exception:
-        if os.path.exists(tmp_name):
-            os.remove(tmp_name)
-        raise
 
-    return BuiltBook(path=destination, title=book_title)
+def _title_from_markdown(markdown: str) -> str:
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            heading = stripped[2:].strip()
+            if heading:
+                return heading
+    return "Work Copy"
+
+
+def build_epub_from_document(
+    markdown: str,
+    out_dir: str | Path,
+    title: str | None = None,
+) -> BuiltBook:
+    if not isinstance(markdown, str) or not markdown.strip():
+        raise EpubError("work copy is empty")
+
+    book_title = title.strip() if isinstance(title, str) and title.strip() else _title_from_markdown(markdown)
+    return _publish([(book_title, markdown)], book_title, out_dir)
