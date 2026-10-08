@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import zipfile
+from xml.etree import ElementTree
 
 import httpx
 
@@ -187,3 +188,36 @@ async def test_epub_build_route_is_not_forwarded_to_upstream(config):
         await client.post("/api/epub/build", json={"conversations": []})
 
     assert calls == []
+
+
+async def test_content_documents_declare_xhtml_and_utf8(config):
+    app = build_app(config, sequence_handler([chat_response("4")]))
+    async with client_for(app) as client:
+        await _capture(client, "What is 2+2?")
+        response = await _build(client, await _listing(client))
+
+    with zipfile.ZipFile(config.epub_out_dir / response.json()["output"]) as archive:
+        documents = [name for name in archive.namelist() if name.endswith(".xhtml")]
+        assert documents
+        for name in documents:
+            document = _document(archive, name)
+            assert 'http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd' in document
+            assert "charset=utf-8" in document
+            ElementTree.fromstring(document)
+        for name in ("OEBPS/content.opf", "OEBPS/toc.ncx", "META-INF/container.xml"):
+            ElementTree.fromstring(archive.read(name))
+
+
+async def test_build_removes_xml_invalid_control_characters(config):
+    app = build_app(config, sequence_handler([chat_response("ok")]))
+    async with client_for(app) as client:
+        await _capture(client, "hello\u0000\u0007world")
+        response = await _build(client, await _listing(client))
+
+    with zipfile.ZipFile(config.epub_out_dir / response.json()["output"]) as archive:
+        document = _document(archive, "OEBPS/chapter1.xhtml")
+        opf = _document(archive, "OEBPS/content.opf")
+
+    ElementTree.fromstring(document)
+    ElementTree.fromstring(opf)
+    assert "helloworld" in document

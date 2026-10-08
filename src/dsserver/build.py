@@ -15,6 +15,19 @@ _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 _BLOCKQUOTE_RE = re.compile(r"^>\s?(.*)$")
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 
+_XML_INVALID_RE = re.compile(
+    "[^\u0009\u000a\u000d\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]"
+)
+
+
+def _xml_safe(text: str) -> str:
+    return _XML_INVALID_RE.sub("", text)
+
+
+def _escape(text: str, quote: bool = True) -> str:
+    return html.escape(_xml_safe(text), quote=quote)
+
+
 CONTAINER_XML = """<?xml version="1.0" encoding="utf-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
@@ -31,7 +44,7 @@ class BuiltBook:
 
 
 def _inline(text: str) -> str:
-    return _BOLD_RE.sub(r"<strong>\1</strong>", html.escape(text, quote=False))
+    return _BOLD_RE.sub(r"<strong>\1</strong>", _escape(text, quote=False))
 
 
 def _flush_paragraph(blocks: list[str], paragraph: list[str]) -> None:
@@ -57,7 +70,7 @@ def markdown_to_xhtml(markdown: str) -> str:
                 code.append(lines[index])
                 index += 1
             index += 1
-            blocks.append(f"<pre><code>{html.escape(chr(10).join(code))}</code></pre>")
+            blocks.append(f"<pre><code>{_escape(chr(10).join(code))}</code></pre>")
             continue
         if not stripped:
             _flush_paragraph(blocks, paragraph)
@@ -91,9 +104,13 @@ def markdown_to_xhtml(markdown: str) -> str:
 def _content_document(title: str, body: str) -> str:
     return (
         '<?xml version="1.0" encoding="utf-8"?>\n'
-        "<!DOCTYPE html>\n"
+        '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" '
+        '"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">\n'
         '<html xmlns="http://www.w3.org/1999/xhtml">\n'
-        f"  <head><title>{html.escape(title)}</title></head>\n"
+        "  <head>\n"
+        f"    <title>{_escape(title)}</title>\n"
+        '    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>\n'
+        "  </head>\n"
         "  <body>\n"
         f"{body}\n"
         "  </body>\n"
@@ -115,7 +132,7 @@ def _opf(title: str, identifier: str, documents: list[tuple[str, str]]) -> str:
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="bookid">\n'
         '  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
-        f"    <dc:title>{html.escape(title)}</dc:title>\n"
+        f"    <dc:title>{_escape(title)}</dc:title>\n"
         f'    <dc:identifier id="bookid">{identifier}</dc:identifier>\n'
         "    <dc:language>en</dc:language>\n"
         "  </metadata>\n"
@@ -134,7 +151,7 @@ def _ncx(title: str, identifier: str, documents: list[tuple[str, str]]) -> str:
     for position, (name, document_title) in enumerate(documents, start=1):
         points.append(
             f'    <navPoint id="chapter{position}" playOrder="{position}">'
-            f"<navLabel><text>{html.escape(document_title)}</text></navLabel>"
+            f"<navLabel><text>{_escape(document_title)}</text></navLabel>"
             f'<content src="{name}"/></navPoint>'
         )
     points_xml = "\n".join(points)
@@ -149,7 +166,7 @@ def _ncx(title: str, identifier: str, documents: list[tuple[str, str]]) -> str:
         '    <meta name="dtb:totalPageCount" content="0"/>\n'
         '    <meta name="dtb:maxPageNumber" content="0"/>\n'
         "  </head>\n"
-        f"  <docTitle><text>{html.escape(title)}</text></docTitle>\n"
+        f"  <docTitle><text>{_escape(title)}</text></docTitle>\n"
         "  <navMap>\n"
         f"{points_xml}\n"
         "  </navMap>\n"
