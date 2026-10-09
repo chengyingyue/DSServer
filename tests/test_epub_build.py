@@ -201,11 +201,28 @@ async def test_content_documents_declare_xhtml_and_utf8(config):
         assert documents
         for name in documents:
             document = _document(archive, name)
-            assert 'http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd' in document
+            assert 'xmlns="http://www.w3.org/1999/xhtml"' in document
             assert "charset=utf-8" in document
+            assert "<!DOCTYPE" not in document
             ElementTree.fromstring(document)
         for name in ("OEBPS/content.opf", "OEBPS/toc.ncx", "META-INF/container.xml"):
             ElementTree.fromstring(archive.read(name))
+
+
+async def test_large_conversation_is_split_into_multiple_documents(config):
+    app = build_app(config, sequence_handler([chat_response("ok")]))
+    huge = "word " * 20000
+    async with client_for(app) as client:
+        await _capture(client, huge)
+        response = await _build(client, await _listing(client))
+
+    with zipfile.ZipFile(config.epub_out_dir / response.json()["output"]) as archive:
+        documents = [name for name in archive.namelist() if name.endswith(".xhtml")]
+        assert len(documents) >= 2
+        for name in documents:
+            raw = archive.read(name)
+            assert len(raw) < 60000
+            ElementTree.fromstring(raw)
 
 
 async def test_build_removes_xml_invalid_control_characters(config):

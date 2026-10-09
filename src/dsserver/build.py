@@ -28,6 +28,77 @@ def _escape(text: str, quote: bool = True) -> str:
     return html.escape(_xml_safe(text), quote=quote)
 
 
+STYLES_CSS = """\
+body { margin: 1em; line-height: 1.5; }
+pre { white-space: pre-wrap; word-wrap: break-word; }
+"""
+
+MAX_DOC_CHARS = 24000
+_MAX_LINE_CHARS = 2000
+
+
+def _wrap_long_lines(lines: list[str], limit: int = _MAX_LINE_CHARS) -> list[str]:
+    wrapped: list[str] = []
+    for line in lines:
+        if len(line) <= limit:
+            wrapped.append(line)
+            continue
+        for start in range(0, len(line), limit):
+            wrapped.append(line[start : start + limit])
+    return wrapped
+
+
+def _markdown_chunks(markdown: str, max_chars: int = MAX_DOC_CHARS) -> list[str]:
+    lines = _wrap_long_lines(markdown.splitlines())
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    in_fence = False
+
+    def flush() -> None:
+        nonlocal current, current_len
+        if current:
+            chunks.append("\n".join(current))
+            current = []
+            current_len = 0
+
+    for line in lines:
+        add = len(line) + 1
+        is_fence_line = line.strip().startswith("```")
+
+        if in_fence:
+            if current_len + add > max_chars:
+                current.append("```")
+                flush()
+                current.append("```")
+                current_len = 4
+            current.append(line)
+            current_len += add
+            if is_fence_line:
+                in_fence = False
+            continue
+
+        if current_len + add > max_chars:
+            flush()
+        current.append(line)
+        current_len += add
+        if is_fence_line:
+            in_fence = True
+
+    flush()
+    return chunks
+
+
+def _chunk_title(markdown: str, fallback: str) -> str:
+    for line in markdown.splitlines():
+        heading = _HEADING_RE.match(line.strip())
+        if heading is not None:
+            text = heading.group(2).strip()
+            if text:
+                return text
+    return fallback
+
+
 CONTAINER_XML = """<?xml version="1.0" encoding="utf-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
@@ -104,12 +175,11 @@ def markdown_to_xhtml(markdown: str) -> str:
 def _content_document(title: str, body: str) -> str:
     return (
         '<?xml version="1.0" encoding="utf-8"?>\n'
-        '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" '
-        '"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">\n'
         '<html xmlns="http://www.w3.org/1999/xhtml">\n'
         "  <head>\n"
         f"    <title>{_escape(title)}</title>\n"
         '    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>\n'
+        '    <link rel="stylesheet" type="text/css" href="styles.css"/>\n'
         "  </head>\n"
         "  <body>\n"
         f"{body}\n"
@@ -119,7 +189,10 @@ def _content_document(title: str, body: str) -> str:
 
 
 def _opf(title: str, identifier: str, documents: list[tuple[str, str]]) -> str:
-    manifest = ['<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>']
+    manifest = [
+        '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>',
+        '<item id="styles" href="styles.css" media-type="text/css"/>',
+    ]
     spine: list[str] = []
     for position, (name, _) in enumerate(documents, start=1):
         manifest.append(
@@ -191,6 +264,7 @@ def _write_staging(root: str | Path, title: str, documents: list[tuple[str, str]
     (base / "OEBPS").mkdir(parents=True, exist_ok=True)
     (base / "mimetype").write_text(MIMETYPE, encoding="utf-8")
     (base / "META-INF" / "container.xml").write_text(CONTAINER_XML, encoding="utf-8")
+    (base / "OEBPS" / "styles.css").write_text(STYLES_CSS, encoding="utf-8")
 
     manifest: list[tuple[str, str]] = []
     for position, (document_title, markdown) in enumerate(documents, start=1):
@@ -231,10 +305,11 @@ def build_epub(
         raise EpubError("no conversations selected")
 
     book_title = title.strip() if isinstance(title, str) and title.strip() else _default_title(conversations)
-    documents = [
-        (_conversation_label(conversation), render_conversation(conversation))
-        for conversation in conversations
-    ]
+    documents: list[tuple[str, str]] = []
+    for conversation in conversations:
+        label = _conversation_label(conversation)
+        for chunk in _markdown_chunks(render_conversation(conversation)):
+            documents.append((_chunk_title(chunk, label), chunk))
     return _publish(documents, book_title, out_dir)
 
 
@@ -257,4 +332,5 @@ def build_epub_from_document(
         raise EpubError("work copy is empty")
 
     book_title = title.strip() if isinstance(title, str) and title.strip() else _title_from_markdown(markdown)
-    return _publish([(book_title, markdown)], book_title, out_dir)
+    documents = [(_chunk_title(chunk, book_title), chunk) for chunk in _markdown_chunks(markdown)]
+    return _publish(documents, book_title, out_dir)
