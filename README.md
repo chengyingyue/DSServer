@@ -83,6 +83,9 @@ saved
 ```
 
 (If the latest user content is not plain text, the reply is just `saved`.)
+If the request sets `stream: true`, the Bridge answers with an SSE stream
+(`text/event-stream`, ending in `data: [DONE]`) just like the Upstream would,
+so streaming Clients work unchanged.
 
 ### Run in the background (no terminal left open)
 

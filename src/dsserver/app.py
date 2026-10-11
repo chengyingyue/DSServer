@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
@@ -87,6 +88,23 @@ def _save_reply(messages: list[dict[str, Any]]) -> str:
             return f"{content}\n{SAVE_MARKER}"
         break
     return SAVE_MARKER
+
+
+def _sse_data(payload: dict[str, Any]) -> bytes:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
+
+
+async def _save_sse(completion_id: str, model: str, reply: str) -> AsyncIterator[bytes]:
+    base = {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+    }
+    yield _sse_data({**base, "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}]})
+    yield _sse_data({**base, "choices": [{"index": 0, "delta": {"content": reply}, "finish_reason": None}]})
+    yield _sse_data({**base, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
+    yield b"data: [DONE]\n\n"
 
 
 def _forward_request_headers(headers: Mapping[str, str]) -> dict[str, str]:
@@ -719,6 +737,12 @@ def create_app(
             {"upstream": None},
         )
         await persist(record.to_dict(), markdown=True)
+
+        if chat_request.stream:
+            return StreamingResponse(
+                _save_sse(record.id, chat_request.model or "", message["content"]),
+                media_type="text/event-stream",
+            )
 
         completion = {
             "id": record.id,
