@@ -65,3 +65,12 @@ async def test_the_editor_offers_an_outline_and_a_break_hint(config):
     assert "renderOutline" in response.text
     assert "&lt;!-- chapter --&gt;" in response.text
     assert "insertChapterBreak" not in response.text
+
+
+async def test_the_outline_is_collapsible(config):
+    app = build_app(config, sequence_handler([]))
+    async with client_for(app) as client:
+        response = await client.get("/")
+
+    assert "renderOutlineNode" in response.text
+    assert "headingTree" in response.text

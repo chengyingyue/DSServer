@@ -4,8 +4,12 @@
 
 **Blocked by:** None (09 is done).
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The outline renders as collapsible per-chapter entries
-- [ ] Collapsing one chapter's outline does not affect the editor content
-- [ ] Outline still jumps the caret to the chapter on click
+- [x] The outline renders as collapsible per-chapter entries
+- [x] Collapsing one chapter's outline does not affect the editor content
+- [x] Outline still jumps the caret to the chapter on click
+
+## Comments
+
+- Implemented as a collapsible heading tree: `headingTree` parses every `#`–`######` heading into a nested structure, and `renderOutlineNode` emits a `<details>` per heading (open by default). Sub-headings nest under their chapter, so a long outline folds branch by branch. The chapter title is a link that jumps the caret; it calls `preventDefault`/`stopPropagation` so clicking the title jumps without toggling, while the disclosure marker folds. Collapsing only hides DOM — the textarea is never touched.

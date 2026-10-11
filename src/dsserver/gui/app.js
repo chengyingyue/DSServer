@@ -880,18 +880,60 @@ async function discardWork() {
   }
 }
 
+function headingTree(content) {
+  const root = { level: 0, children: [] };
+  const stack = [root];
+  content.split('\n').forEach((line, index) => {
+    const match = line.match(/^(#{1,6})\s+(.+?)\s*$/);
+    if (!match) return;
+    const level = match[1].length;
+    const node = { level: level, title: match[2], index: index, children: [] };
+    while (stack.length > 1 && stack[stack.length - 1].level >= level) stack.pop();
+    stack[stack.length - 1].children.push(node);
+    stack.push(node);
+  });
+  return root.children;
+}
+
+function countChapters(nodes) {
+  let count = 0;
+  for (const node of nodes) {
+    if (node.level === 1) count += 1;
+    count += countChapters(node.children);
+  }
+  return count;
+}
+
+function renderOutlineNode(node) {
+  const li = document.createElement('li');
+  const details = document.createElement('details');
+  details.open = true;
+  const summary = document.createElement('summary');
+  const link = document.createElement('a');
+  link.textContent = node.title;
+  link.href = '#';
+  link.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    jumpToLine(node.index);
+  });
+  summary.appendChild(link);
+  details.appendChild(summary);
+  if (node.children.length) {
+    const ul = document.createElement('ul');
+    for (const child of node.children) ul.appendChild(renderOutlineNode(child));
+    details.appendChild(ul);
+  }
+  li.appendChild(details);
+  return li;
+}
+
 function renderOutline() {
   const content = document.getElementById('work-content').value;
   const container = document.getElementById('work-outline');
-  const chapters = [];
-  content.split('\n').forEach((line, index) => {
-    const match = line.match(/^#\s+(.*)$/);
-    if (match && match[1].trim()) {
-      chapters.push({ title: match[1].trim(), index: index });
-    }
-  });
+  const tree = headingTree(content);
   container.replaceChildren();
-  if (chapters.length === 0) {
+  if (tree.length === 0) {
     const note = document.createElement('p');
     note.className = 'muted';
     note.textContent = 'No chapters (# headings) yet.';
@@ -900,17 +942,10 @@ function renderOutline() {
   }
   const heading = document.createElement('p');
   heading.className = 'muted';
-  heading.textContent = chapters.length + ' chapter(s):';
+  heading.textContent = countChapters(tree) + ' chapter(s):';
   container.appendChild(heading);
   const ul = document.createElement('ul');
-  for (const chapter of chapters) {
-    const li = document.createElement('li');
-    const link = document.createElement('a');
-    link.textContent = chapter.title;
-    link.addEventListener('click', () => jumpToLine(chapter.index));
-    li.appendChild(link);
-    ul.appendChild(li);
-  }
+  for (const node of tree) ul.appendChild(renderOutlineNode(node));
   container.appendChild(ul);
 }
 
