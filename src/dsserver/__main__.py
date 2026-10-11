@@ -1,12 +1,27 @@
 from __future__ import annotations
 
 import argparse
+import socket
+import sys
 
 import uvicorn
 
 from .app import create_app
 from .config import load_config
 from .markdown import render_all
+
+
+def refuse_busy_port(host: str, port: int) -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind((host, port))
+        except OSError:
+            print(
+                f"Port {port} on {host} is already in use — another dsserver is probably"
+                f" still running.\nStop it and retry, e.g.:  Stop-Process -Name dsserver -Force",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
 
 
 def main() -> None:
@@ -22,6 +37,7 @@ def main() -> None:
         print(f"Rendered {count} conversation(s) into {config.conversations_dir}")
         return
 
+    refuse_busy_port(config.bind, config.port)
     uvicorn.run(create_app(config), host=config.bind, port=config.port, workers=1)
 
 
