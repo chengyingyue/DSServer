@@ -4,11 +4,15 @@
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Each Exchange appears in a per-conversation Markdown file named `{YYYY-MM-DD}-{slug}` (slug from the first user message, sanitized; non-ASCII/empty falls back to a short hash).
-- [ ] Injected (system) messages are visually distinguished from human (user) input; assistant output is labelled.
-- [ ] Reasoning content, model, token usage, and latency are shown when present.
-- [ ] Requests that extend a known conversation prefix append only the delta; a divergent prefix (edit/regenerate) starts a new conversation file.
-- [ ] An index file lists conversations.
-- [ ] Raw SSE is never rendered.
+- [x] Each Exchange appears in a per-conversation Markdown file named `{YYYY-MM-DD}-{slug}` (slug from the first user message, sanitized; non-ASCII/empty falls back to a short hash).
+- [x] Injected (system) messages are visually distinguished from human (user) input; assistant output is labelled.
+- [x] Reasoning content, model, token usage, and latency are shown when present.
+- [x] Requests that extend a known conversation prefix append only the delta; a divergent prefix (edit/regenerate) starts a new conversation file.
+- [x] An index file lists conversations.
+- [x] Raw SSE is never rendered.
+
+## Comments
+
+- Verified done: `tests/test_markdown.py`, and the token top-block in `tests/test_token_display.py`.

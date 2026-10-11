@@ -4,8 +4,12 @@
 
 **Blocked by:** 04.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A `render` command regenerates all Markdown files from the JSONL log.
-- [ ] Regenerated output matches what incremental writing produced for the same records.
-- [ ] Markdown is treated as a derived view: running `render` never modifies the JSONL log.
+- [x] A `render` command regenerates all Markdown files from the JSONL log.
+- [x] Regenerated output matches what incremental writing produced for the same records.
+- [x] Markdown is treated as a derived view: running `render` never modifies the JSONL log.
+
+## Comments
+
+- Verified done: `tests/test_render_command.py`.

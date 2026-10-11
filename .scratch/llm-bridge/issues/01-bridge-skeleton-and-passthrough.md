@@ -4,9 +4,13 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The Bridge starts from configuration covering upstream base URL, bind address, and port.
-- [ ] Any request is forwarded to the Upstream and its status, headers, and body are returned to the Client byte-for-byte unchanged.
-- [ ] Error responses (4xx/5xx) pass through with their original status, headers, and body.
-- [ ] HTTP-boundary integration tests run against an injected fake Upstream and assert only on returned bytes (no assertions on internal functions).
+- [x] The Bridge starts from configuration covering upstream base URL, bind address, and port.
+- [x] Any request is forwarded to the Upstream and its status, headers, and body are returned to the Client byte-for-byte unchanged.
+- [x] Error responses (4xx/5xx) pass through with their original status, headers, and body.
+- [x] HTTP-boundary integration tests run against an injected fake Upstream and assert only on returned bytes (no assertions on internal functions).
+
+## Comments
+
+- Verified done: `tests/test_passthrough.py`.
