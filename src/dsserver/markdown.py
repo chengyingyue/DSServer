@@ -376,7 +376,60 @@ def build_conversations(records: list[dict[str, Any]]) -> list[Conversation]:
     return ConversationIndex.from_records(records).conversations
 
 
-def render_conversation(conversation: Conversation) -> str:
+def token_count(value: Any) -> str:
+    if isinstance(value, int):
+        return f"{value:,}"
+    return str(value)
+
+
+def smart_zone_limit_label(limit: int) -> str:
+    if limit % 1000 == 0:
+        return f"{limit // 1000}k"
+    return f"{limit:,}"
+
+
+def smart_zone_percent(value: Any, limit: int) -> int | None:
+    if not isinstance(value, int) or limit <= 0:
+        return None
+    return round(value * 100 / limit)
+
+
+WARN_FRACTION = 0.8
+
+
+def _context_block(conversation: Conversation, smart_zone: int) -> list[str]:
+    latest = None
+    for turn in reversed(conversation.turns):
+        usage = turn.usage or {}
+        if usage.get("prompt_tokens") is not None or usage.get("total_tokens") is not None:
+            latest = usage
+            break
+    if latest is None:
+        return []
+
+    prompt = latest.get("prompt_tokens")
+    total = latest.get("total_tokens")
+    percent = smart_zone_percent(prompt, smart_zone)
+    limit_label = smart_zone_limit_label(smart_zone)
+
+    flag = ""
+    if percent is not None and percent >= WARN_FRACTION * 100:
+        flag = " \u26a0\ufe0f"
+
+    header = f"**Prompt token:  {token_count(prompt)} prompt"
+    if percent is not None:
+        header += f" ({percent}% of {limit_label})"
+    header += f"**{flag}"
+
+    lines = [header]
+    if percent is not None:
+        lines.append(f"> 最新一轮上下文已用 {percent}% 的 smart zone。")
+    lines.append(f"Total token: {token_count(total)}")
+    lines.append("")
+    return lines
+
+
+def render_conversation(conversation: Conversation, smart_zone: int = 150000) -> str:
     models = [model for model in dict.fromkeys(turn.model for turn in conversation.turns) if model]
     summary = f"_{conversation.date} · {len(conversation.turns)} turns"
     if models:
@@ -384,6 +437,7 @@ def render_conversation(conversation: Conversation) -> str:
     summary += "_"
 
     lines: list[str] = [f"# {conversation.title}", "", summary, ""]
+    lines.extend(_context_block(conversation, smart_zone))
 
     for index, turn in enumerate(conversation.turns, 1):
         header = f"## Turn {index} · {turn.ts}"
@@ -444,7 +498,7 @@ def _write_if_changed(path: Path, content: str) -> None:
 def write_conversation(config: Config, conversation: Conversation) -> None:
     config.conversations_dir.mkdir(parents=True, exist_ok=True)
     target = config.conversations_dir / conversation.filename
-    _write_if_changed(target, render_conversation(conversation))
+    _write_if_changed(target, render_conversation(conversation, config.smart_zone_tokens))
 
 
 def write_index(config: Config, conversations: list[Conversation]) -> None:

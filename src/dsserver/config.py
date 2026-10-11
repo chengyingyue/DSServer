@@ -26,10 +26,15 @@ class Config:
     upstream_base_url: str = "https://api.deepseek.com"
     bind: str = "0.0.0.0"
     port: int = 8787
+    test_port: int = 8788
+    smart_zone_tokens: int = 150000
     deep_paths: list[str] = field(default_factory=lambda: list(DEFAULT_DEEP_PATHS))
     store_dir: Path = field(default_factory=lambda: Path("data"))
     keep_raw_sse: bool = True
     header_whitelist: list[str] = field(default_factory=lambda: list(DEFAULT_HEADER_WHITELIST))
+
+    def port_for(self, env: str) -> int:
+        return self.test_port if env == "test" else self.port
 
     @property
     def log_path(self) -> Path:
@@ -70,6 +75,8 @@ def load_config(path: str | Path = "config.toml") -> Config:
         upstream_base_url=str(data.get("upstream_base_url", Config.upstream_base_url)),
         bind=str(data.get("bind", Config.bind)),
         port=int(data.get("port", Config.port)),
+        test_port=int(data.get("test_port", Config.test_port)),
+        smart_zone_tokens=int(data.get("smart_zone_tokens", Config.smart_zone_tokens)),
         deep_paths=list(data.get("deep_paths", DEFAULT_DEEP_PATHS)),
         store_dir=Path(data.get("store_dir", "data")),
         keep_raw_sse=bool(data.get("keep_raw_sse", True)),

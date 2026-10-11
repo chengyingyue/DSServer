@@ -34,6 +34,8 @@ from .markdown import (
     Conversation,
     ConversationIndex,
     render_conversation,
+    smart_zone_limit_label,
+    smart_zone_percent,
     write_conversation,
     write_conversations_dir,
     write_index,
@@ -71,6 +73,9 @@ HOP_BY_HOP_HEADERS = {
 }
 
 UPSTREAM_TIMEOUT = httpx.Timeout(600.0, connect=30.0)
+
+SAVE_PATH = "/save"
+SAVE_MARKER = "conversation saved"
 
 
 def _forward_request_headers(headers: Mapping[str, str]) -> dict[str, str]:
@@ -186,9 +191,37 @@ def create_app(
     app.state.client = client
     app.state.store = store
 
+    def log_chat_tokens(record: dict[str, Any]) -> None:
+        if record.get("kind") != CHAT_KIND:
+            return
+        response = record.get("response") or {}
+        usage = response.get("usage") or {}
+        prompt = usage.get("prompt_tokens")
+        completion = usage.get("completion_tokens")
+        total = usage.get("total_tokens")
+        if prompt is None and completion is None and total is None:
+            return
+        model = (record.get("request") or {}).get("model") or "?"
+        latency = (record.get("meta") or {}).get("latency_ms")
+        parts = [f"[chat] {model}"]
+        if prompt is not None:
+            parts.append(f"prompt={prompt:,}")
+        if completion is not None:
+            parts.append(f"completion={completion:,}")
+        if total is not None:
+            parts.append(f"total={total:,}")
+        percent = smart_zone_percent(prompt, config.smart_zone_tokens)
+        if percent is not None:
+            limit = smart_zone_limit_label(config.smart_zone_tokens)
+            parts.append(f"ctx={prompt:,}/{limit} ({percent}%)")
+        if latency is not None:
+            parts.append(f"{latency}ms")
+        print(" · ".join(parts), flush=True)
+
     async def persist(record: dict[str, Any], markdown: bool) -> None:
         async with write_lock:
             await store.append(record)
+            log_chat_tokens(record)
             if markdown:
                 conversation = index.apply(record)
                 if conversation is not None:
@@ -277,7 +310,7 @@ def create_app(
         conversation = index.get(key, branch)
         if conversation is None:
             return JSONResponse({"error": "unknown conversation"}, status_code=404)
-        markdown = render_conversation(conversation)
+        markdown = render_conversation(conversation, config.smart_zone_tokens)
         mode = index.render_mode_of(conversation)
         return JSONResponse(
             {
@@ -562,7 +595,9 @@ def create_app(
         if name is not None and not isinstance(name, str):
             return JSONResponse({"error": "name must be a string"}, status_code=400)
 
-        content = "\n\n".join(render_conversation(conversation) for conversation in selected)
+        content = "\n\n".join(
+            render_conversation(conversation, config.smart_zone_tokens) for conversation in selected
+        )
         work_id = work_store.create(content, name)
         return JSONResponse(
             {"id": work_id, "name": work_store.name(work_id), "content": content}
@@ -655,6 +690,33 @@ def create_app(
         except EpubError as error:
             return JSONResponse({"error": str(error)}, status_code=422)
         return JSONResponse({"output": book.path.name, "title": book.title})
+
+    @app.post(SAVE_PATH)
+    async def save_only(request: Request) -> Response:
+        body = await request.body()
+        try:
+            chat_request = parse_chat_request(body)
+        except (ValueError, TypeError):
+            return JSONResponse({"error": "invalid chat request"}, status_code=400)
+
+        message = {"role": "assistant", "content": SAVE_MARKER}
+        record = build_exchange(
+            CHAT_KIND,
+            build_client_info(request.headers, config.header_whitelist),
+            chat_request.to_request_dict(request.url.path),
+            _chat_response_dict(200, None, "stop", message),
+            {"upstream": None},
+        )
+        await persist(record.to_dict(), markdown=True)
+
+        completion = {
+            "id": record.id,
+            "object": "chat.completion",
+            "model": chat_request.model or "",
+            "choices": [{"index": 0, "message": message, "finish_reason": "stop"}],
+            "usage": None,
+        }
+        return JSONResponse(completion)
 
     @app.api_route(
         "/{full_path:path}",

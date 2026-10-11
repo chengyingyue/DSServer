@@ -28,6 +28,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="dsserver")
     parser.add_argument("command", nargs="?", default="serve", choices=["serve", "render"])
     parser.add_argument("--config", default="config.toml")
+    parser.add_argument(
+        "--env",
+        default="prod",
+        choices=["prod", "test"],
+        help="which port to serve on: prod (port) or test (test_port)",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -37,8 +43,10 @@ def main() -> None:
         print(f"Rendered {count} conversation(s) into {config.conversations_dir}")
         return
 
-    refuse_busy_port(config.bind, config.port)
-    uvicorn.run(create_app(config), host=config.bind, port=config.port, workers=1)
+    port = config.port_for(args.env)
+    refuse_busy_port(config.bind, port)
+    print(f"Serving on {config.bind}:{port} ({args.env})")
+    uvicorn.run(create_app(config), host=config.bind, port=port, workers=1)
 
 
 if __name__ == "__main__":

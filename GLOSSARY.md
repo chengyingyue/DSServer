@@ -63,3 +63,15 @@ _Avoid_: output, export, artifact；输出、导出、产物
 **EPUB Pipeline**（EPUB 管线）:
 The facility that turns reading material into ebooks tailored for the owner's e-reader — either by converting an existing EPUB, or by packaging selected Conversations into a new one.
 _Avoid_: converter, exporter, builder；转换器、导出器
+
+**Production Port / Test Port**（生产端口 / 测试端口）:
+The two ports the Bridge can serve on. Production is the port the everyday Client points at; Test is a separate port for experiments, so a trial Client never disturbs real traffic. The Bridge listens on exactly one of them per run.
+_Avoid_: main port, dev port；主端口、开发端口
+
+**Save-only Request**（仅记录请求）:
+A request that the Bridge records as an Exchange but does not forward to the Upstream, answering with the marker text "conversation saved" in the Assistant position. Used to persist a Conversation on demand.
+_Avoid_: import, offline save；导入、离线保存
+
+**Smart Zone**（智能区 / 有效上下文）:
+The span of context within which the model still reasons sharply, expressed as a token budget. The Bridge surfaces each Conversation's latest-turn context size against it so the owner can gauge how close a thread is to degrading.
+_Avoid_: context window, max tokens；上下文窗口、最大 token

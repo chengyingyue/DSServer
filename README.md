@@ -24,7 +24,9 @@ Edit `config.toml`:
 ```toml
 upstream_base_url = "https://api.deepseek.com"
 bind = "0.0.0.0"            # listen on the LAN; use 127.0.0.1 for local-only
-port = 8787
+port = 8787                # production port
+test_port = 8788           # port used with `--env test`
+smart_zone_tokens = 150000 # context budget used for the token display
 deep_paths = ["/chat/completions", "/v1/chat/completions"]
 store_dir = "data"
 keep_raw_sse = true
@@ -36,9 +38,26 @@ keep_raw_sse = true
 uv run dsserver
 ```
 
+By default the Bridge serves on the **production** port (`port`, 8787). To serve
+on the **test** port (`test_port`, 8788) instead — for experiments that must not
+disturb real traffic — pass `--env test`:
+
+```
+uv run dsserver serve --env test
+```
+
+Only one port is served per run; both behave identically.
+
 Point your Client's API base URL at the Bridge, for example
 `http://192.168.1.50:8787` (or `http://192.168.1.50:8787/v1`). The Client keeps
 sending its own API key; the Bridge passes it through and never stores it.
+
+### Save a conversation without calling the model
+
+`POST /save` accepts the same body as a chat request, but the Bridge **records
+it and does not forward it upstream**. It answers with the marker text
+`conversation saved` in the assistant position, so the saved turn shows up like
+any model reply — and appears in the rendered Markdown.
 
 ### Run in the background (no terminal left open)
 
@@ -88,6 +107,21 @@ Markdown is derived from the JSONL log and can be regenerated at any time:
 ```
 uv run dsserver render
 ```
+
+## Token usage at a glance
+
+Each rendered Conversation leads with the **latest turn's** context size, shown
+against `smart_zone_tokens`:
+
+```
+**Prompt token:  74,000 prompt (49% of 150k)**
+> 最新一轮上下文已用 49% 的 smart zone。
+Total token: 89,000
+```
+
+A `⚠️` appears once the prompt reaches 80% of the budget. Every Turn header also
+shows its own `N total tokens · N ms`. The same numbers are printed to the
+server console as each Exchange is recorded.
 
 ## Where the data lives
 
