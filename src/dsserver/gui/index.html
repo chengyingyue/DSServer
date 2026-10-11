@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="wrap">
-<div class="page"><h1>DSServer</h1><span class="tag">local bridge &middot; gui v8</span></div>
+<div class="page"><h1>DSServer</h1><span class="tag">local bridge &middot; gui v9</span></div>
 
 <details class="section" id="section-epub" open>
   <summary><svg class="icon chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg><span>EPUB</span></summary>
@@ -98,6 +98,15 @@
   <div class="toolbar" style="justify-content: flex-end; margin-top: 0.7rem;">
     <button class="btn" id="render-picker-cancel">Cancel</button>
     <button class="btn primary" id="render-picker-ok">Save</button>
+  </div>
+</dialog>
+
+<dialog id="confirm-dialog">
+  <h3 id="confirm-title">Confirm</h3>
+  <p id="confirm-message" class="muted"></p>
+  <div class="toolbar" style="justify-content: flex-end; margin-top: 0.7rem;">
+    <button class="btn" id="confirm-cancel">Cancel</button>
+    <button class="btn primary" id="confirm-ok">Confirm</button>
   </div>
 </dialog>
 <script>%%SCRIPT%%</script>

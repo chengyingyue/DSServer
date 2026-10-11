@@ -96,3 +96,14 @@ async def test_gui_offers_a_delete_action(config):
     assert response.status_code == 200
     assert "removeConversation" in response.text
     assert "method: 'DELETE'" in response.text
+
+
+async def test_gui_confirms_destructive_actions_in_page(config):
+    app = build_app(config, sequence_handler([]))
+    async with client_for(app) as client:
+        response = await client.get("/")
+
+    assert response.status_code == 200
+    assert 'id="confirm-dialog"' in response.text
+    assert "confirmDialog(" in response.text
+    assert "window.confirm" not in response.text

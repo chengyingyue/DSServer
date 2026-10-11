@@ -87,6 +87,31 @@ function setConvStatus(message) {
   document.getElementById('conv-status').textContent = message;
 }
 
+function confirmDialog(message) {
+  const dialog = document.getElementById('confirm-dialog');
+  document.getElementById('confirm-message').textContent = message;
+  const ok = document.getElementById('confirm-ok');
+  const cancel = document.getElementById('confirm-cancel');
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      ok.removeEventListener('click', onOk);
+      cancel.removeEventListener('click', onCancel);
+      dialog.removeEventListener('close', onClose);
+      resolve(result);
+    };
+    const onOk = () => { dialog.close(); finish(true); };
+    const onCancel = () => { dialog.close(); finish(false); };
+    const onClose = () => finish(false);
+    ok.addEventListener('click', onOk);
+    cancel.addEventListener('click', onCancel);
+    dialog.addEventListener('close', onClose);
+    dialog.showModal();
+  });
+}
+
 async function loadConversations() {
   const [convResponse, folderResponse] = await Promise.all([
     fetch('/api/conversations'),
@@ -289,7 +314,7 @@ async function renameFolder(folder) {
 }
 
 async function deleteFolder(folder) {
-  if (!window.confirm('Delete folder "' + folder.name + '"? Its Conversations move to the parent folder.')) return;
+  if (!(await confirmDialog('Delete folder "' + folder.name + '"? Its Conversations move to the parent folder.'))) return;
   const response = await fetch('/api/folders/' + encodeURIComponent(folder.id), { method: 'DELETE' });
   if (!response.ok) {
     const result = await response.json();
@@ -417,7 +442,7 @@ async function rename(conversation) {
 }
 
 async function removeConversation(conversation) {
-  if (!window.confirm('Delete \"' + conversation.name + '\" permanently? This cannot be undone.')) return;
+  if (!(await confirmDialog('Delete \"' + conversation.name + '\" permanently? This cannot be undone.'))) return;
   const response = await fetch(
     '/api/conversations/' + encodeURIComponent(conversation.key) +
     '?branch=' + encodeURIComponent(conversation.branch),
@@ -584,12 +609,12 @@ async function renameFolderPath(path) {
 }
 
 async function deleteFolderPath(path) {
-  if (!window.confirm('Delete folder "' + path + '" and everything inside it?')) return;
+  if (!(await confirmDialog('Delete folder "' + path + '" and everything inside it?'))) return;
   await epubAction('DELETE', '/api/epub/folder?path=' + encodeURIComponent(path));
 }
 
 async function deleteFile(path) {
-  if (!window.confirm('Delete "' + path + '"?')) return;
+  if (!(await confirmDialog('Delete "' + path + '"?'))) return;
   await epubAction('DELETE', '/api/epub/file?path=' + encodeURIComponent(path));
 }
 
