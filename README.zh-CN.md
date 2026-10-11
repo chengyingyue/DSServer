@@ -30,7 +30,9 @@ uv sync
 ```toml
 upstream_base_url = "https://api.deepseek.com"
 bind = "0.0.0.0"            # 监听局域网；仅本机使用改为 127.0.0.1
-port = 8787
+port = 8787                # 生产端口
+test_port = 8788           # 测试端口（配合 --env test 使用）
+smart_zone_tokens = 150000 # 用于 token 显示的上下文预算
 deep_paths = ["/chat/completions", "/v1/chat/completions"]
 store_dir = "data"
 keep_raw_sse = true
@@ -40,7 +42,9 @@ keep_raw_sse = true
 | --- | --- |
 | `upstream_base_url` | 上游 LLM 提供方地址，目前为 DeepSeek |
 | `bind` | 监听地址；`0.0.0.0` 表示允许局域网访问 |
-| `port` | 监听端口，默认 8787 |
+| `port` | 生产端口，默认 8787 |
+| `test_port` | 测试端口，默认 8788；与生产端口二选一启动 |
+| `smart_zone_tokens` | 「智能区」上下文预算，用于 token 占比显示，默认 150000 |
 | `deep_paths` | 需要拦截并记录的上游路径 |
 | `store_dir` | 数据存储目录，默认 `data` |
 | `keep_raw_sse` | 是否保留流式响应的原始 SSE |
@@ -53,10 +57,25 @@ keep_raw_sse = true
 uv run dsserver
 ```
 
+默认监听**生产端口**（`port`，8787）。若想改到**测试端口**（`test_port`，8788）——
+用于不想干扰真实流量的试验——加 `--env test`：
+
+```powershell
+uv run dsserver serve --env test
+```
+
+一次只监听一个端口，两种模式行为完全一致。
+
 启动后，把客户端的 API Base URL 指向桥接器，例如：
 
 - `http://192.168.1.50:8787`
 - 或 `http://192.168.1.50:8787/v1`
+
+### 只保存会话、不调用模型
+
+`POST /save` 接收与聊天请求相同的请求体，但桥接器**只记录、不转发上游**。
+它会在助手位置返回一行标记文字 `conversation saved`，因此这次保存会像普通模型
+回复一样出现——并出现在渲染出的 Markdown 里。
 
 ### 后台运行（无需一直开着终端）
 
@@ -102,7 +121,21 @@ Markdown 由 JSONL 日志派生，可随时重新生成：
 uv run dsserver render
 ```
 
-## 7. 数据位置
+## 7. 一眼看清 token 用量
+
+每个渲染出的会话，开头会显示**最新一轮**的上下文规模，并与 `smart_zone_tokens`
+对比：
+
+```
+**Prompt token:  74,000 prompt (49% of 150k)**
+> 最新一轮上下文已用 49% 的 smart zone。
+Total token: 89,000
+```
+
+当 prompt 达到预算的 80% 时，会出现 `⚠️` 警告。每个 Turn 标题仍会显示它自己的
+`N total tokens · N ms`。同样的数字会在每笔交换落库时打印到服务端控制台。
+
+## 8. 数据位置
 
 - `data/exchanges.jsonl` — 只追加的真相日志，每行一次交换（也存放会话改名 Record）
 - `data/conversations/*.md` — Markdown 阅读视图
@@ -111,7 +144,7 @@ uv run dsserver render
 - `data/epub/work/` — 可编辑工作副本（归 EPUB 管线管理）
 - `data/epub/out/` — 转换 / 打包产出的 EPUB
 
-## 8. 家庭局域网部署
+## 9. 家庭局域网部署
 
 1. **固定局域网 IP** — 在路由器中为该电脑保留 DHCP 租约，或分配静态 IP，
    使客户端 Base URL 不会变化。
@@ -124,16 +157,19 @@ uv run dsserver render
 3. **登录自启动** — 在 `shell:startup` 中创建指向 `uv run dsserver`
    （工作目录 = 本仓库）的快捷方式，或用「任务计划程序」注册。
 
-## 9. 日后远程访问
+## 10. 日后远程访问
 
 如需在家中以外使用，把桥接器放到免费的
 [Tailscale](https://tailscale.com/) 网络之后即可，**无需改动任何代码或配置**。
 详细配置步骤见 `Tailscale 配置指南.md`。
 
-## 10. 常见验证清单
+## 11. 常见验证清单
 
 - [ ] `uv sync` 成功，`.venv` 已生成
 - [ ] `uv run dsserver` 正常监听 8787 端口
+- [ ] `uv run dsserver serve --env test` 正常监听 8788 端口
+- [ ] `POST /save` 返回 `conversation saved`，且不转发上游、出现在 Markdown 中
+- [ ] 渲染出的会话顶部显示最新一轮的 `Prompt token` / `Total token` 与占比
 - [ ] 同一 Wi-Fi 下的手机 App，Base URL 指向桥接器后可正常对话
 - [ ] 真实手机使用后，`data/` 下出现记录并能渲染为 Markdown
 - [ ] 浏览器打开 `http://<主机>:8787/` 能看到会话列表并改名

@@ -32,6 +32,20 @@ store_dir = "data"
 keep_raw_sse = true
 ```
 
+| Field | Meaning |
+| --- | --- |
+| `upstream_base_url` | Upstream LLM provider; currently DeepSeek |
+| `bind` | Listen address; `0.0.0.0` allows LAN access |
+| `port` | Production port, default 8787 |
+| `test_port` | Test port, default 8788; serve on one or the other |
+| `smart_zone_tokens` | Smart-zone context budget for the token display, default 150000 |
+| `deep_paths` | Upstream paths to intercept and record |
+| `store_dir` | Data directory, default `data` |
+| `keep_raw_sse` | Whether to keep the raw SSE of streaming responses |
+
+> The API key is carried by the Client and passed through; the Bridge **never
+> stores** it.
+
 ## Run
 
 ```
@@ -152,3 +166,17 @@ server console as each Exchange is recorded.
 To use the Bridge from outside the home, put it behind a free
 [Tailscale](https://tailscale.com/) network; no code or configuration change is
 needed. See `Tailscale 配置指南.md` for the full setup steps.
+
+## Quick verification checklist
+
+- [ ] `uv sync` succeeds and `.venv` is created
+- [ ] `uv run dsserver` listens on port 8787
+- [ ] `uv run dsserver serve --env test` listens on port 8788
+- [ ] `POST /save` returns `conversation saved`, forwards nothing upstream, and
+      appears in the Markdown
+- [ ] A rendered Conversation shows the latest turn's `Prompt token` / `Total token`
+      and the percentage at the top
+- [ ] A phone app on the same Wi-Fi uses the Bridge once its base URL points at it
+- [ ] After real phone use, `data/` holds records that render to Markdown
+- [ ] `http://<host>:8787/` shows the Conversation list and allows renaming
+- [ ] An EPUB in `data/epub/inbox/` converts to a result in `data/epub/out/`
