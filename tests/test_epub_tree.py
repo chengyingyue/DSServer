@@ -5,6 +5,8 @@ from pathlib import Path
 
 import httpx
 
+from dsserver import epub
+
 from .conftest import build_app, client_for, sequence_handler
 
 MIMETYPE = "application/epub+zip"
@@ -171,3 +173,13 @@ async def test_the_gui_offers_folder_download(config):
 
     assert "downloadFolder" in response.text
     assert "folderEpubs" in response.text
+
+
+def test_convert_path_accepts_a_relative_root(tmp_path, monkeypatch):
+    _write_fixture(tmp_path / "data" / "epub" / "inbox" / "x.epub")
+    monkeypatch.chdir(tmp_path)
+
+    result = epub.convert_path("data/epub", "inbox/x.epub")
+
+    assert result == {"kind": "file", "input": "x.epub", "output": "x.epub"}
+    assert (tmp_path / "data" / "epub" / "out" / "x.epub").is_file()

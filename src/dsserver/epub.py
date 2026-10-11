@@ -172,7 +172,7 @@ def _convert_into_tree(epub_root: Path, source: Path) -> str:
 
 
 def convert_path(epub_root: str | Path, rel: str) -> dict[str, Any]:
-    root = Path(epub_root)
+    root = Path(epub_root).resolve()
     source = resolve_epub_path(root, rel, roots=("inbox",))
     inbox = root / "inbox"
 
