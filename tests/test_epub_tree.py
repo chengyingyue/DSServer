@@ -178,13 +178,14 @@ async def test_download_inbox_file_by_path_and_refuse_work(config):
     assert work.status_code == 400
 
 
-async def test_the_gui_offers_folder_download(config):
+async def test_the_gui_offers_folder_and_file_download(config):
     app = build_app(config, sequence_handler([]))
     async with client_for(app) as client:
         response = await client.get("/")
 
     assert "downloadFolder" in response.text
     assert "folderEpubs" in response.text
+    assert "downloadFile" in response.text
 
 
 def test_convert_path_accepts_a_relative_root(tmp_path, monkeypatch):

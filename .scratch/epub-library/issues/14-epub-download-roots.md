@@ -13,4 +13,4 @@
 ## Comments
 
 - Raised by `/code-review` against spec line 190.
-- **Decision:** keep the generalisation. The GUI deliberately offers Download on both `inbox` and `out` files and folders (grabbing a source EPUB is a real use), so narrowing the endpoint would strip a feature. Amended the spec's API line to record download from `inbox` or `out`, with `work` deliberately excluded (Work Copies are addressed by id, not path). Added a test locking that scope: an inbox path downloads, a `work` path is refused with 400.
+- **Decision:** keep the generalisation. The GUI deliberately offers Download on both `inbox` and `out` files and folders (grabbing a source EPUB is a real use), so narrowing the endpoint would strip a feature. Amended the spec's API line to record download from `inbox` or `out`, with `work` deliberately excluded (Work Copies are addressed by id, not path). Added a test locking that scope: an inbox path downloads, a `work` path is refused with 400. The GUI already wired Download for both roots, so no GUI change was needed; `test_the_gui_offers_folder_and_file_download` now asserts the file-download wiring too.

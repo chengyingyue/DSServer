@@ -102,8 +102,8 @@ function confirmDialog(message) {
       dialog.removeEventListener('close', onClose);
       resolve(result);
     };
-    const onOk = () => { dialog.close(); finish(true); };
-    const onCancel = () => { dialog.close(); finish(false); };
+    const onOk = () => { finish(true); dialog.close(); };
+    const onCancel = () => { finish(false); dialog.close(); };
     const onClose = () => finish(false);
     ok.addEventListener('click', onOk);
     cancel.addEventListener('click', onCancel);
@@ -904,6 +904,14 @@ function countChapters(nodes) {
   return count;
 }
 
+function countHeadings(nodes) {
+  let count = 0;
+  for (const node of nodes) {
+    count += 1 + countHeadings(node.children);
+  }
+  return count;
+}
+
 function renderOutlineNode(node) {
   const li = document.createElement('li');
   const details = document.createElement('details');
@@ -942,7 +950,10 @@ function renderOutline() {
   }
   const heading = document.createElement('p');
   heading.className = 'muted';
-  heading.textContent = countChapters(tree) + ' chapter(s):';
+  const chapters = countChapters(tree);
+  heading.textContent = chapters > 0
+    ? chapters + ' chapter(s):'
+    : countHeadings(tree) + ' heading(s):';
   container.appendChild(heading);
   const ul = document.createElement('ul');
   for (const node of tree) ul.appendChild(renderOutlineNode(node));
