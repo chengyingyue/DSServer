@@ -1,196 +1,4 @@
-from __future__ import annotations
 
-INDEX_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DSServer</title>
-<style>
-  :root {
-    --border: #e3e6ea; --muted: #6b7280; --accent: #2563eb; --accent-soft: #eff4ff;
-    --bg: #f6f7f9; --card: #ffffff; --text: #1f2933; --danger: #dc2626; --danger-soft: #fef2f2;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 1.5rem 1rem 3rem; background: var(--bg); color: var(--text);
-    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  .wrap { max-width: 66rem; margin: 0 auto; }
-  .page { display: flex; align-items: baseline; gap: 0.6rem; margin: 0 0 1rem; }
-  .page h1 { font-size: 1.15rem; margin: 0; }
-  .page .tag { font-size: 0.72rem; color: var(--muted); }
-  .section {
-    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-    margin-bottom: 0.9rem; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04); overflow: hidden;
-  }
-  .section > summary {
-    list-style: none; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;
-    padding: 0.7rem 1rem; font-weight: 600; user-select: none;
-  }
-  .section > summary::-webkit-details-marker { display: none; }
-  .section[open] > summary { border-bottom: 1px solid var(--border); }
-  .body { padding: 0.85rem 1rem; }
-  .chev { transition: transform 0.15s ease; color: var(--muted); }
-  .section[open] > summary > .chev { transform: rotate(90deg); }
-  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.7rem; }
-  .toolbar:last-child { margin-bottom: 0; }
-  .grow { flex: 1 1 12rem; }
-  .muted { color: var(--muted); }
-  .count { color: var(--muted); font-weight: 400; font-size: 0.82rem; }
-
-  input[type=text], input[type=file] {
-    padding: 0.38rem 0.55rem; border: 1px solid var(--border); border-radius: 8px;
-    background: #fff; color: var(--text); font: inherit; max-width: 100%;
-  }
-  input[type=text]:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
-  input[type=checkbox] { width: 1rem; height: 1rem; cursor: pointer; }
-  select { padding: 0.38rem 0.55rem; border: 1px solid var(--border); border-radius: 8px; font: inherit; }
-
-  .btn {
-    display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.38rem 0.7rem;
-    border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--text);
-    font: inherit; cursor: pointer; white-space: nowrap;
-  }
-  .btn:hover { background: #f3f5f8; }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .btn.primary:hover { background: #1d4ed8; }
-
-  .icon-btn {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 1.75rem; height: 1.75rem; padding: 0;
-    border: 1px solid var(--border); border-radius: 7px;
-    background: #fff; color: #5b6472; cursor: pointer; flex: none;
-  }
-  .icon-btn:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
-  .icon-btn.danger:hover { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
-  .icon { width: 1rem; height: 1rem; display: block; flex: none; }
-
-  .tree-panel { border: 1px solid var(--border); border-radius: 10px; padding: 0.4rem 0.5rem; background: #fcfdfe; }
-  ul.tree { list-style: none; padding-left: 1.1rem; margin: 0; }
-  ul.tree.root { padding-left: 0; }
-  ul.tree details > summary { list-style: none; cursor: pointer; }
-  ul.tree summary::-webkit-details-marker { display: none; }
-  .node-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0.35rem; border-radius: 7px; min-height: 1.75rem; }
-  .node-row:hover { background: #f1f4f8; }
-  .node-row .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .node-row.dir .name { font-weight: 600; }
-  .node-row .actions { display: flex; gap: 0.1rem; flex: none; }
-  ul.tree details[open] > summary .chev { transform: rotate(90deg); }
-  .node-icon { color: var(--muted); }
-  .node-row.dir > .node-icon { color: #d99a2b; }
-  .conv-meta { color: var(--muted); font-size: 0.8rem; flex: none; }
-  li[hidden] { display: none; }
-  .node-row.drop { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
-  ul.tree.root > li { margin: 0.1rem 0; }
-  .root-label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
-
-  #viewer { max-width: 48rem; width: 90%; border: 1px solid var(--border); border-radius: 12px; }
-  #viewer-body { max-height: 70vh; overflow: auto; }
-  #viewer-body pre { white-space: pre-wrap; word-break: break-word; background: #f6f8fa; padding: 0.75rem; border-radius: 8px; }
-  #folder-picker { border: 1px solid var(--border); border-radius: 12px; min-width: 20rem; }
-  #folder-picker-select { width: 100%; }
-  #work-content { width: 100%; padding: 0.6rem; border: 1px solid var(--border); border-radius: 10px; font: 13px/1.5 ui-monospace, Consolas, monospace; }
-  #work-outline { margin-bottom: 0.5rem; }
-  #work-outline ul { margin: 0.2rem 0; padding-left: 1.2rem; }
-  #work-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
-</style>
-</head>
-<body>
-<div class="wrap">
-<div class="page"><h1>DSServer</h1><span class="tag">local bridge &middot; gui v8</span></div>
-
-<details class="section" id="section-epub" open>
-  <summary><svg class="icon chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg><span>EPUB</span></summary>
-  <div class="body">
-    <div class="toolbar">
-      <input id="build-title" class="grow" type="text" placeholder="Book title (optional)">
-      <button class="btn primary" id="build"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v18H6a2 2 0 0 0-2 2z"/><path d="M19 17H6"/></svg><span>Build EPUB</span></button>
-      <span class="muted" id="build-status"></span>
-    </div>
-    <div class="toolbar">
-      <button class="btn" id="scan"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><span>Scan inbox</span></button>
-      <input id="epub-upload" type="file" accept=".epub">
-      <input id="upload-dir" class="grow" type="text" placeholder="target folder (optional, e.g. inbox/ao3)">
-      <button class="btn" id="upload"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M5 3h14"/></svg><span>Upload</span></button>
-      <span class="muted" id="upload-status"></span>
-    </div>
-    <div class="tree-panel"><div id="epub-tree"></div></div>
-    <p class="muted" id="epub-status"></p>
-  </div>
-</details>
-
-<details class="section" id="section-conversations" open>
-  <summary><svg class="icon chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg><span>Conversations</span><span class="count" id="conv-count"></span></summary>
-  <div class="body">
-    <div class="toolbar">
-      <input id="filter" class="grow" type="text" placeholder="Filter by name">
-      <button class="btn" id="conv-new-folder"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v6M9 14h6"/></svg><span>New folder</span></button>
-      <button class="btn" id="conv-move-selected"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M13 9h6M16 6l3 3-3 3"/></svg><span>Move selected</span></button>
-      <label class="muted"><input type="checkbox" id="select-all"> Select all</label>
-      <span class="muted" id="conv-selected"></span>
-    </div>
-    <div class="tree-panel"><div id="conv-tree"></div></div>
-    <p class="muted" id="conv-status"></p>
-  </div>
-</details>
-
-<details class="section" id="section-work" open>
-  <summary><svg class="icon chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg><span>Work copy</span></summary>
-  <div class="body">
-    <p class="muted">Create an editable, named copy of the ticked Conversations, refine it by chapter, build an EPUB from it, then discard it. Editing never changes the original Conversations or the log.</p>
-    <div class="toolbar">
-      <input id="work-name" class="grow" type="text" placeholder="Work copy name (optional)">
-      <button class="btn primary" id="work-create"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v18H6a2 2 0 0 0-2 2z"/><path d="M19 17H6"/></svg><span>Create from selection</span></button>
-      <span class="muted" id="work-status"></span>
-    </div>
-    <div class="toolbar">
-      <span class="muted">Work copies</span>
-      <button class="icon-btn" id="work-refresh" title="Refresh"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></button>
-      <span class="count" id="work-list"></span>
-    </div>
-    <div class="toolbar">
-      <button class="btn" id="work-rename"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg><span>Rename</span></button>
-      <button class="btn" id="work-save"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h7V3"/><path d="M8 15h8v6H8z"/></svg><span>Save</span></button>
-      <button class="btn" id="work-download"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg><span>Download MD</span></button>
-      <button class="btn" id="work-build"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v18H6a2 2 0 0 0-2 2z"/><path d="M19 17H6"/></svg><span>Build EPUB</span></button>
-      <button class="btn" id="work-discard"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg><span>Discard</span></button>
-    </div>
-    <p class="muted">Chapters split automatically at every <code>#</code> heading. To force a break without a heading, type a line containing just <code>&lt;!-- chapter --&gt;</code>.</p>
-    <div id="work-outline"></div>
-    <textarea id="work-content" rows="16"></textarea>
-    <input id="work-id" type="hidden">
-  </div>
-</details>
-</div>
-
-<dialog id="viewer">
-  <div class="toolbar" style="justify-content: flex-end;">
-    <button class="icon-btn" id="viewer-close" title="Close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-  </div>
-  <h2 id="viewer-title"></h2>
-  <div id="viewer-body"></div>
-</dialog>
-
-<dialog id="folder-picker">
-  <h3>Move selected to folder</h3>
-  <select id="folder-picker-select"></select>
-  <div class="toolbar" style="justify-content: flex-end; margin-top: 0.7rem;">
-    <button class="btn" id="folder-picker-cancel">Cancel</button>
-    <button class="btn primary" id="folder-picker-ok">Move</button>
-  </div>
-</dialog>
-
-<dialog id="render-picker">
-  <h3 id="render-picker-title">Rendering</h3>
-  <label class="muted" style="display:block; margin:0.4rem 0;"><input type="radio" name="render-mode" value="normal"> Normal &mdash; code blocks render as code</label>
-  <label class="muted" style="display:block; margin:0.4rem 0;"><input type="radio" name="render-mode" value="plain_code"> Ignore ``` fences &mdash; code content renders as normal markdown</label>
-  <div class="toolbar" style="justify-content: flex-end; margin-top: 0.7rem;">
-    <button class="btn" id="render-picker-cancel">Cancel</button>
-    <button class="btn primary" id="render-picker-ok">Save</button>
-  </div>
-</dialog>
-<script>
 const NS = "http://www.w3.org/2000/svg";
 
 const ICON_PATHS = {
@@ -259,7 +67,7 @@ function folderPath(id) {
 }
 
 function resolveFolderPath(path) {
-  const trimmed = (path || '').trim().replace(/^\\/+|\\/+$/g, '');
+  const trimmed = (path || '').trim().replace(/^\/+|\/+$/g, '');
   if (!trimmed) return '';
   const target = folders.find(
     (folder) => folderPath(folder.id).toLowerCase() === trimmed.toLowerCase(),
@@ -396,7 +204,7 @@ function renderConversation(conversation) {
 
   const meta = document.createElement('span');
   meta.className = 'conv-meta';
-  meta.textContent = conversation.date + ' \\u00b7 ' + conversation.turns;
+  meta.textContent = conversation.date + ' \u00b7 ' + conversation.turns;
   row.appendChild(meta);
 
   const actions = document.createElement('span');
@@ -532,7 +340,7 @@ async function saveRender() {
 async function moveConversation(conversation) {
   const current = folderPath(conversation.folder || '');
   const known = folders.map((folder) => folderPath(folder.id)).filter(Boolean).join(', ') || '(none)';
-  const target = window.prompt('Move to folder path (empty = Unfiled).\\nAvailable: ' + known, current);
+  const target = window.prompt('Move to folder path (empty = Unfiled).\nAvailable: ' + known, current);
   if (target === null) return;
   const folderId = resolveFolderPath(target);
   if (folderId === null) {
@@ -609,7 +417,7 @@ async function rename(conversation) {
 }
 
 async function removeConversation(conversation) {
-  if (!window.confirm('Delete \\"' + conversation.name + '\\" permanently? This cannot be undone.')) return;
+  if (!window.confirm('Delete \"' + conversation.name + '\" permanently? This cannot be undone.')) return;
   const response = await fetch(
     '/api/conversations/' + encodeURIComponent(conversation.key) +
     '?branch=' + encodeURIComponent(conversation.branch),
@@ -1051,8 +859,8 @@ function renderOutline() {
   const content = document.getElementById('work-content').value;
   const container = document.getElementById('work-outline');
   const chapters = [];
-  content.split('\\n').forEach((line, index) => {
-    const match = line.match(/^#\\s+(.*)$/);
+  content.split('\n').forEach((line, index) => {
+    const match = line.match(/^#\s+(.*)$/);
     if (match && match[1].trim()) {
       chapters.push({ title: match[1].trim(), index: index });
     }
@@ -1083,7 +891,7 @@ function renderOutline() {
 
 function jumpToLine(lineIndex) {
   const textarea = document.getElementById('work-content');
-  const lines = textarea.value.split('\\n');
+  const lines = textarea.value.split('\n');
   let offset = 0;
   for (let i = 0; i < lineIndex && i < lines.length; i += 1) {
     offset += lines[i].length + 1;
@@ -1127,7 +935,3 @@ document.getElementById('work-content').addEventListener('input', renderOutline)
 loadConversations();
 loadEpub();
 loadWorkList();
-</script>
-</body>
-</html>
-"""

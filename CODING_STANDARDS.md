@@ -25,6 +25,7 @@ git config core.hooksPath .githooks
 
 ## GUI
 
+- **Source layout:** the GUI lives in `src/dsserver/gui/` as `index.html`, `app.css` and `app.js`. `__init__.py` assembles them into a single `INDEX_HTML` at import, so the page is still served as one offline document. Edit the source files, never a copy.
 - **The GUI is one offline page.** Icons are inline SVG; do not reintroduce a `<use>`/sprite, a CDN, a client-side framework, or a build chain. `scripts/check.py` fails the build if the embedded JS references an external URL.
 - **Bump the `gui vN` tag** in the page header on every GUI change. It is how a running build is identified — a stale server process once served old HTML and the tag is what caught it.
 - **Confirm destructive actions in-page** with a `<dialog>`, not `window.confirm` (purge, folder/file delete). Keep it consistent with the folder and render pickers.

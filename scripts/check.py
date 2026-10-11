@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import re
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+GUI_DIR = ROOT / "src" / "dsserver" / "gui"
+SVG_NS = "http://www.w3.org/2000/svg"
 
 
 def run(label: str, args: list[str]) -> bool:
@@ -16,40 +16,26 @@ def run(label: str, args: list[str]) -> bool:
     return result.returncode == 0
 
 
-def check_gui_js() -> bool:
-    from dsserver.gui import INDEX_HTML
-
-    match = re.search(r"<script>(.*)</script>", INDEX_HTML, re.S)
-    if match is None:
-        print("\n== gui JS ==\nno <script> block found in gui.py")
-        return False
-    js = match.group(1)
-
-    network_js = js.replace("http://www.w3.org/2000/svg", "")
-    for scheme in ("http://", "https://"):
-        if scheme in network_js:
-            print(f"\n== gui JS ==\nembedded JS references {scheme}; the GUI must stay offline")
-            return False
+def check_gui() -> bool:
+    for name in ("app.js", "index.html"):
+        text = (GUI_DIR / name).read_text(encoding="utf-8").replace(SVG_NS, "")
+        for scheme in ("http://", "https://"):
+            if scheme in text:
+                print(f"\n== gui ==\n{name} references {scheme}; the GUI must stay offline")
+                return False
 
     node = shutil.which("node")
     if node is None:
         print("\n== gui JS ==\nnode not found on PATH; skipping syntax check")
         return True
-
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as handle:
-        handle.write(js)
-        path = handle.name
-    try:
-        return run("gui JS syntax", [node, "--check", path])
-    finally:
-        Path(path).unlink(missing_ok=True)
+    return run("gui JS syntax", [node, "--check", str(GUI_DIR / "app.js")])
 
 
 def main() -> None:
     checks = [
         run("pytest", [sys.executable, "-m", "pytest", "-q"]),
         run("mypy", [sys.executable, "-m", "mypy"]),
-        check_gui_js(),
+        check_gui(),
     ]
     sys.exit(0 if all(checks) else 1)
 
