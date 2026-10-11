@@ -9,6 +9,14 @@ Orient yourself before starting work:
 - Decision history: `docs/adr/`
 - Current feature work (specs + tickets): `.scratch/<feature>/`
 
+## Local server
+
+A background `dsserver` may still be bound to a port with an **older build** —
+restart it after code changes, and confirm it serves current code before
+debugging against it. It is up when stderr shows `Uvicorn running on ...`
+(stdout may stay empty under redirection). See `README.md` §Run for the
+prod/test port split.
+
 ## Agent skills
 
 ### Issue tracker

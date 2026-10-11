@@ -19,6 +19,10 @@ git config core.hooksPath .githooks
 - **Authoritative state lives only in the log** (`exchanges.jsonl`) as Records — never a sidecar file, never derived from filenames (ADR 0002). A new persistent concept becomes a Record `kind` (and an `op` if it has variants), replayed in order; for folders and render modes, see ADR 0005.
 - **Record builders share one envelope.** Do not re-spell `id` / `owner` / `ts` / `kind`; factor a shared builder when a second op needs the same shape.
 
+## Proxying
+
+- **Answer in the shape the request asked for.** Any route that synthesizes a model response for a Client (e.g. `/save`) must honour the request's `stream` flag: SSE (`text/event-stream`, `chat.completion.chunk` events ending in `data: [DONE]`) when `stream: true`, plain JSON otherwise. OpenAI-compatible Clients (okhttp) read a streaming request as an SSE stream and fail hard — "the proxy closed the connection before sending any content" — when they get JSON instead. Mirror the Upstream's shape; do not assume every Client is non-streaming.
+
 ## Filesystem
 
 - **Resolve roots at the boundary.** `resolve_epub_path` returns absolute paths; a caller that keeps its own root relative will blow up on `relative_to`. Normalise to one absolute base and stay on it. (This is the class of bug behind the relative-`store_dir` convert crash.)
