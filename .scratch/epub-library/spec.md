@@ -187,8 +187,10 @@ Extend the existing single-page GUI and its HTTP API:
   - `POST /api/epub/move` `{from, to}` → move a file within inbox or out.
   - `DELETE /api/epub/file?path=...` → delete a file.
   - `POST /api/epub/convert` `{path}` → convert a file or a folder recursively.
-  - `GET /api/epub/file?path=...` → download any EPUB under `out` (generalises
-    the current out-only download); folder download is driven client-side.
+  - `GET /api/epub/file?path=...` → download any EPUB under `inbox` or `out`
+    (the GUI offers Download on both roots); `work` is deliberately excluded
+    because Work Copies are addressed by id, not by path. Folder download is
+    driven client-side.
   - `POST /api/epub/upload?name=...&dir=...` → upload into a chosen folder.
   - `GET /api/epub/work` → list Work Copies `{id, name}`.
   - `POST /api/epub/work` `{conversations, name?}` → create a named copy.
