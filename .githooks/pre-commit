@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs the repo's checks (pytest, mypy, GUI JS) before each commit.
+# Enable once per clone:  git config core.hooksPath .githooks
+exec uv run python scripts/check.py
