@@ -48,11 +48,7 @@ from .models import (
     RENDER_PLAIN_CODE,
     build_client_info,
     build_exchange,
-    build_folder_assign,
-    build_folder_create,
-    build_folder_delete,
-    build_folder_rename,
-    build_folder_render,
+    build_folder,
     build_rename,
     new_id,
 )
@@ -251,8 +247,8 @@ def create_app(
         async with write_lock:
             await store.append(record)
             log_chat_tokens(record)
+            conversation = index.apply(record)
             if markdown:
-                conversation = index.apply(record)
                 if conversation is not None:
                     write_conversation(config, conversation)
                 write_index(config, index.conversations)
@@ -379,10 +375,8 @@ def create_app(
         if not index.has_folder(parent):
             return JSONResponse({"error": "unknown parent folder"}, status_code=404)
         folder_id = new_id()
-        record = build_folder_create(folder_id, name.strip(), parent)
-        async with write_lock:
-            await store.append(record)
-            index.apply(record)
+        record = build_folder("create", folder_id, name=name.strip(), parent=parent)
+        await persist(record, markdown=False)
         return JSONResponse({"id": folder_id, "name": name.strip(), "parent": parent})
 
     @app.patch("/api/folders/{folder_id}")
@@ -395,20 +389,16 @@ def create_app(
             return JSONResponse({"error": "name is required"}, status_code=400)
         if not index.has_folder(folder_id):
             return JSONResponse({"error": "unknown folder"}, status_code=404)
-        record = build_folder_rename(folder_id, name.strip())
-        async with write_lock:
-            await store.append(record)
-            index.apply(record)
+        record = build_folder("rename", folder_id, name=name.strip())
+        await persist(record, markdown=False)
         return JSONResponse({"id": folder_id, "name": name.strip()})
 
     @app.delete("/api/folders/{folder_id}")
     async def delete_conversation_folder(folder_id: str) -> Response:
         if not index.has_folder(folder_id):
             return JSONResponse({"error": "unknown folder"}, status_code=404)
-        record = build_folder_delete(folder_id)
-        async with write_lock:
-            await store.append(record)
-            index.apply(record)
+        record = build_folder("delete", folder_id)
+        await persist(record, markdown=False)
         return JSONResponse({"id": folder_id, "deleted": True})
 
     @app.post("/api/folders/{folder_id}/render")
@@ -421,10 +411,8 @@ def create_app(
             return JSONResponse({"error": "unknown render mode"}, status_code=400)
         if not index.has_folder(folder_id):
             return JSONResponse({"error": "unknown folder"}, status_code=404)
-        record = build_folder_render(folder_id, mode)
-        async with write_lock:
-            await store.append(record)
-            index.apply(record)
+        record = build_folder("render", folder_id, mode=mode)
+        await persist(record, markdown=False)
         return JSONResponse({"id": folder_id, "render": mode})
 
     @app.post("/api/conversations/{key}/folder")
@@ -444,10 +432,8 @@ def create_app(
             return JSONResponse({"error": "unknown conversation"}, status_code=404)
         if not index.has_folder(folder):
             return JSONResponse({"error": "unknown folder"}, status_code=404)
-        record = build_folder_assign(folder, key, branch)
-        async with write_lock:
-            await store.append(record)
-            index.apply(record)
+        record = build_folder("assign", folder, key=key, branch=branch)
+        await persist(record, markdown=False)
         return JSONResponse(_conversation_summary(conversation, index.folder_of(conversation)))
 
     @app.get("/api/epub/files")

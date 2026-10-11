@@ -108,66 +108,16 @@ def build_rename(key: str, branch: int, name: str, owner: str = "local") -> dict
     }
 
 
-def build_folder_create(
-    folder: str, name: str, parent: str = "", owner: str = "local"
+def build_folder(
+    op: str, folder: str, owner: str = "local", **fields: Any
 ) -> dict[str, Any]:
-    return {
+    record: dict[str, Any] = {
         "id": new_id(),
         "owner": owner,
         "ts": now_iso(),
         "kind": FOLDER_KIND,
-        "op": "create",
-        "folder": folder,
-        "name": name,
-        "parent": parent,
-    }
-
-
-def build_folder_rename(folder: str, name: str, owner: str = "local") -> dict[str, Any]:
-    return {
-        "id": new_id(),
-        "owner": owner,
-        "ts": now_iso(),
-        "kind": FOLDER_KIND,
-        "op": "rename",
-        "folder": folder,
-        "name": name,
-    }
-
-
-def build_folder_delete(folder: str, owner: str = "local") -> dict[str, Any]:
-    return {
-        "id": new_id(),
-        "owner": owner,
-        "ts": now_iso(),
-        "kind": FOLDER_KIND,
-        "op": "delete",
+        "op": op,
         "folder": folder,
     }
-
-
-def build_folder_assign(
-    folder: str, key: str, branch: int, owner: str = "local"
-) -> dict[str, Any]:
-    return {
-        "id": new_id(),
-        "owner": owner,
-        "ts": now_iso(),
-        "kind": FOLDER_KIND,
-        "op": "assign",
-        "folder": folder,
-        "key": key,
-        "branch": branch,
-    }
-
-
-def build_folder_render(folder: str, mode: str, owner: str = "local") -> dict[str, Any]:
-    return {
-        "id": new_id(),
-        "owner": owner,
-        "ts": now_iso(),
-        "kind": FOLDER_KIND,
-        "op": "render",
-        "folder": folder,
-        "mode": mode,
-    }
+    record.update(fields)
+    return record
