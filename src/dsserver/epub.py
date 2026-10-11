@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import tempfile
 import zipfile
 from collections.abc import Callable
@@ -38,6 +39,165 @@ TOC_HEADING_CSS = """\
 
 class EpubError(Exception):
     """Raised when an input cannot be converted into an e-reader EPUB."""
+
+
+class EpubPathError(Exception):
+    """Raised when a requested EPUB Library path is missing or unsafe."""
+
+
+EPUB_ROOTS: tuple[str, ...] = ("inbox", "out", "work")
+WRITABLE_ROOTS: tuple[str, ...] = ("inbox", "out")
+
+
+def _rel_parts(rel: str) -> list[str]:
+    return [part for part in rel.replace("\\", "/").split("/") if part not in ("", ".")]
+
+
+def resolve_epub_path(
+    epub_root: str | Path,
+    rel: str,
+    roots: tuple[str, ...] | None = None,
+) -> Path:
+    if not isinstance(rel, str) or not rel.strip():
+        raise EpubPathError("path is required")
+    normalized = rel.strip().replace("\\", "/")
+    if normalized.startswith("/") or (len(normalized) > 1 and normalized[1] == ":"):
+        raise EpubPathError("absolute paths are not allowed")
+    parts = _rel_parts(normalized)
+    if not parts:
+        raise EpubPathError("path is required")
+    if any(part == ".." for part in parts):
+        raise EpubPathError("path traversal is not allowed")
+
+    root = Path(epub_root).resolve()
+    target = root.joinpath(*parts).resolve()
+    if not target.is_relative_to(root):
+        raise EpubPathError("path escapes the EPUB area")
+    if roots is not None and parts[0] not in roots:
+        raise EpubPathError("path must be under " + ", ".join(roots))
+    return target
+
+
+def _tree_node(base: Path, path: Path) -> dict[str, Any]:
+    node: dict[str, Any] = {
+        "name": path.name,
+        "path": path.relative_to(base).as_posix(),
+        "type": "dir" if path.is_dir() else "file",
+        "children": [],
+    }
+    if path.is_dir():
+        entries = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+        for entry in entries:
+            if entry.name.startswith("."):
+                continue
+            node["children"].append(_tree_node(base, entry))
+    return node
+
+
+def epub_tree(
+    epub_root: str | Path,
+    roots: tuple[str, ...] = EPUB_ROOTS,
+) -> list[dict[str, Any]]:
+    base = Path(epub_root)
+    tree: list[dict[str, Any]] = []
+    for name in roots:
+        directory = base / name
+        if directory.is_dir():
+            tree.append(_tree_node(base, directory))
+        else:
+            tree.append({"name": name, "path": name, "type": "dir", "children": []})
+    return tree
+
+
+def create_folder(epub_root: str | Path, rel: str) -> Path:
+    target = resolve_epub_path(epub_root, rel, roots=WRITABLE_ROOTS)
+    if target.exists():
+        raise EpubPathError("a folder or file already exists there")
+    target.mkdir(parents=True)
+    return target
+
+
+def rename_folder(epub_root: str | Path, source_rel: str, target_rel: str) -> Path:
+    source = resolve_epub_path(epub_root, source_rel, roots=WRITABLE_ROOTS)
+    target = resolve_epub_path(epub_root, target_rel, roots=WRITABLE_ROOTS)
+    if source.parent == Path(epub_root).resolve():
+        raise EpubPathError("the root folders cannot be renamed")
+    if not source.is_dir():
+        raise EpubPathError("folder not found")
+    if _rel_parts(source_rel)[0] != _rel_parts(target_rel)[0]:
+        raise EpubPathError("folders cannot move between inbox and out")
+    if target.exists():
+        raise EpubPathError("a folder or file already exists there")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source.rename(target)
+    return target
+
+
+def delete_folder(epub_root: str | Path, rel: str) -> None:
+    target = resolve_epub_path(epub_root, rel, roots=WRITABLE_ROOTS)
+    if target.parent == Path(epub_root).resolve():
+        raise EpubPathError("the root folders cannot be deleted")
+    if not target.is_dir():
+        raise EpubPathError("folder not found")
+    shutil.rmtree(target)
+
+
+def move_file(epub_root: str | Path, source_rel: str, target_rel: str) -> Path:
+    source = resolve_epub_path(epub_root, source_rel, roots=WRITABLE_ROOTS)
+    target = resolve_epub_path(epub_root, target_rel, roots=WRITABLE_ROOTS)
+    if not source.is_file():
+        raise EpubPathError("file not found")
+    if _rel_parts(source_rel)[0] != _rel_parts(target_rel)[0]:
+        raise EpubPathError("files cannot move between inbox and out")
+    if target.exists():
+        raise EpubPathError("a folder or file already exists there")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source.rename(target)
+    return target
+
+
+def delete_file(epub_root: str | Path, rel: str) -> None:
+    target = resolve_epub_path(epub_root, rel, roots=WRITABLE_ROOTS)
+    if not target.is_file():
+        raise EpubPathError("file not found")
+    target.unlink()
+
+
+def _convert_into_tree(epub_root: Path, source: Path) -> str:
+    inbox = epub_root / "inbox"
+    out_root = epub_root / "out"
+    relative_parent = source.relative_to(inbox).parent
+    destination = convert_epub(source, out_root / relative_parent)
+    return destination.relative_to(out_root).as_posix()
+
+
+def convert_path(epub_root: str | Path, rel: str) -> dict[str, Any]:
+    root = Path(epub_root)
+    source = resolve_epub_path(root, rel, roots=("inbox",))
+    inbox = root / "inbox"
+
+    if source.is_file():
+        output = _convert_into_tree(root, source)
+        return {
+            "kind": "file",
+            "input": source.relative_to(inbox).as_posix(),
+            "output": output,
+        }
+
+    if source.is_dir():
+        converted: list[dict[str, str]] = []
+        failed: list[dict[str, str]] = []
+        for epub in sorted(source.rglob("*.epub")):
+            name = epub.relative_to(inbox).as_posix()
+            try:
+                output = _convert_into_tree(root, epub)
+            except EpubError as error:
+                failed.append({"input": name, "error": str(error)})
+            else:
+                converted.append({"input": name, "output": output})
+        return {"kind": "folder", "converted": converted, "failed": failed}
+
+    raise EpubPathError("not found")
 
 
 def unpack_epub(epub_path: str | Path, out_dir: str | Path) -> str:

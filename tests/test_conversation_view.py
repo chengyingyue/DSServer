@@ -26,6 +26,22 @@ async def test_content_endpoint_returns_the_rendered_conversation(config):
     assert body["name"] == "What is 2+2?"
 
 
+async def test_content_endpoint_returns_rendered_html(config):
+    app = build_app(config, sequence_handler([chat_response("4")]))
+    async with client_for(app) as client:
+        await client.post(
+            "/chat/completions", json={"messages": [{"role": "user", "content": "What is 2+2?"}]}
+        )
+        entry = (await client.get("/api/conversations")).json()[0]
+        response = await client.get(
+            f"/api/conversations/{entry['key']}/content?branch={entry['branch']}"
+        )
+
+    body = response.json()
+    assert "<h1" in body["html"]
+    assert "What is 2+2?" in body["html"]
+
+
 async def test_unknown_conversation_content_errors_cleanly(config):
     app = build_app(config, sequence_handler([]))
     async with client_for(app) as client:
@@ -33,3 +49,13 @@ async def test_unknown_conversation_content_errors_cleanly(config):
 
     assert response.status_code == 404
     assert "error" in response.json()
+
+
+async def test_the_gui_offers_a_per_folder_render_picker(config):
+    app = build_app(config, sequence_handler([]))
+    async with client_for(app) as client:
+        response = await client.get("/")
+
+    assert 'id="render-picker"' in response.text
+    assert 'value="plain_code"' in response.text
+    assert "chooseRender" in response.text

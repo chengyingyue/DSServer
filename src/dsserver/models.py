@@ -9,6 +9,10 @@ from typing import Any
 CHAT_KIND = "chat"
 OTHER_KIND = "other"
 RENAME_KIND = "rename"
+FOLDER_KIND = "folder"
+RENDER_NORMAL = "normal"
+RENDER_PLAIN_CODE = "plain_code"
+RENDER_MODES = (RENDER_NORMAL, RENDER_PLAIN_CODE)
 
 
 def new_id() -> str:
@@ -101,4 +105,69 @@ def build_rename(key: str, branch: int, name: str, owner: str = "local") -> dict
         "key": key,
         "branch": branch,
         "name": name,
+    }
+
+
+def build_folder_create(
+    folder: str, name: str, parent: str = "", owner: str = "local"
+) -> dict[str, Any]:
+    return {
+        "id": new_id(),
+        "owner": owner,
+        "ts": now_iso(),
+        "kind": FOLDER_KIND,
+        "op": "create",
+        "folder": folder,
+        "name": name,
+        "parent": parent,
+    }
+
+
+def build_folder_rename(folder: str, name: str, owner: str = "local") -> dict[str, Any]:
+    return {
+        "id": new_id(),
+        "owner": owner,
+        "ts": now_iso(),
+        "kind": FOLDER_KIND,
+        "op": "rename",
+        "folder": folder,
+        "name": name,
+    }
+
+
+def build_folder_delete(folder: str, owner: str = "local") -> dict[str, Any]:
+    return {
+        "id": new_id(),
+        "owner": owner,
+        "ts": now_iso(),
+        "kind": FOLDER_KIND,
+        "op": "delete",
+        "folder": folder,
+    }
+
+
+def build_folder_assign(
+    folder: str, key: str, branch: int, owner: str = "local"
+) -> dict[str, Any]:
+    return {
+        "id": new_id(),
+        "owner": owner,
+        "ts": now_iso(),
+        "kind": FOLDER_KIND,
+        "op": "assign",
+        "folder": folder,
+        "key": key,
+        "branch": branch,
+    }
+
+
+def build_folder_render(folder: str, mode: str, owner: str = "local") -> dict[str, Any]:
+    return {
+        "id": new_id(),
+        "owner": owner,
+        "ts": now_iso(),
+        "kind": FOLDER_KIND,
+        "op": "render",
+        "folder": folder,
+        "mode": mode,
     }

@@ -12,8 +12,11 @@ from .markdown import Conversation, render_conversation, sanitize_stem
 MIMETYPE = "application/epub+zip"
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+_H1_RE = re.compile(r"^#\s+\S")
+_CHAPTER_SEPARATOR_RE = re.compile(r"^\s*<!--\s*chapter\s*-->\s*$")
 _BLOCKQUOTE_RE = re.compile(r"^>\s?(.*)$")
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_ITALIC_RE = re.compile(r"(?<!\w)_([^_\n]+)_(?!\w)")
 
 _XML_INVALID_RE = re.compile(
     "[^\u0009\u000a\u000d\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]"
@@ -99,6 +102,42 @@ def _chunk_title(markdown: str, fallback: str) -> str:
     return fallback
 
 
+def _split_at_h1(markdown: str) -> list[str]:
+    parts: list[str] = []
+    current: list[str] = []
+    for line in markdown.splitlines():
+        if _H1_RE.match(line) and current:
+            parts.append("\n".join(current))
+            current = []
+        current.append(line)
+    parts.append("\n".join(current))
+    return parts
+
+
+def split_chapters(markdown: str, max_chars: int = MAX_DOC_CHARS) -> list[str]:
+    segments: list[str] = []
+    current: list[str] = []
+    for line in markdown.splitlines():
+        if _CHAPTER_SEPARATOR_RE.match(line):
+            segments.append("\n".join(current))
+            current = []
+        else:
+            current.append(line)
+    segments.append("\n".join(current))
+
+    chapters: list[str] = []
+    for segment in segments:
+        for part in _split_at_h1(segment):
+            for chunk in _markdown_chunks(part, max_chars):
+                if chunk.strip():
+                    chapters.append(chunk)
+    return chapters
+
+
+def render_markdown_html(markdown: str, plain_code: bool = False) -> str:
+    return markdown_to_xhtml(markdown, plain_code=plain_code)
+
+
 CONTAINER_XML = """<?xml version="1.0" encoding="utf-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
@@ -115,7 +154,8 @@ class BuiltBook:
 
 
 def _inline(text: str) -> str:
-    return _BOLD_RE.sub(r"<strong>\1</strong>", _escape(text, quote=False))
+    escaped = _BOLD_RE.sub(r"<strong>\1</strong>", _escape(text, quote=False))
+    return _ITALIC_RE.sub(r"<em>\1</em>", escaped)
 
 
 def _flush_paragraph(blocks: list[str], paragraph: list[str]) -> None:
@@ -126,10 +166,12 @@ def _flush_paragraph(blocks: list[str], paragraph: list[str]) -> None:
     paragraph.clear()
 
 
-def markdown_to_xhtml(markdown: str) -> str:
+def markdown_to_xhtml(markdown: str, plain_code: bool = False) -> str:
     blocks: list[str] = []
     paragraph: list[str] = []
     lines = markdown.splitlines()
+    if plain_code:
+        lines = [line for line in lines if not line.strip().startswith("```")]
     index = 0
     while index < len(lines):
         stripped = lines[index].strip()
@@ -308,7 +350,7 @@ def build_epub(
     documents: list[tuple[str, str]] = []
     for conversation in conversations:
         label = _conversation_label(conversation)
-        for chunk in _markdown_chunks(render_conversation(conversation)):
+        for chunk in split_chapters(render_conversation(conversation)):
             documents.append((_chunk_title(chunk, label), chunk))
     return _publish(documents, book_title, out_dir)
 
@@ -332,5 +374,5 @@ def build_epub_from_document(
         raise EpubError("work copy is empty")
 
     book_title = title.strip() if isinstance(title, str) and title.strip() else _title_from_markdown(markdown)
-    documents = [(_chunk_title(chunk, book_title), chunk) for chunk in _markdown_chunks(markdown)]
+    documents = [(_chunk_title(chunk, book_title), chunk) for chunk in split_chapters(markdown)]
     return _publish(documents, book_title, out_dir)

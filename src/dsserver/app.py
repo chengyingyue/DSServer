@@ -12,10 +12,23 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 
-from .build import build_epub, build_epub_from_document
+from .build import build_epub, build_epub_from_document, render_markdown_html
 from .chat import ChatRequest, parse_chat_request, parse_chat_response
 from .config import Config
-from .epub import EpubError, convert_epub, list_epubs, unique_output
+from .epub import (
+    EpubError,
+    EpubPathError,
+    convert_path,
+    create_folder,
+    delete_file,
+    delete_folder,
+    epub_tree,
+    list_epubs,
+    move_file,
+    rename_folder,
+    resolve_epub_path,
+    unique_output,
+)
 from .gui import INDEX_HTML
 from .markdown import (
     Conversation,
@@ -25,7 +38,21 @@ from .markdown import (
     write_conversations_dir,
     write_index,
 )
-from .models import CHAT_KIND, OTHER_KIND, build_client_info, build_exchange, build_rename
+from .models import (
+    CHAT_KIND,
+    OTHER_KIND,
+    RENDER_MODES,
+    RENDER_PLAIN_CODE,
+    build_client_info,
+    build_exchange,
+    build_folder_assign,
+    build_folder_create,
+    build_folder_delete,
+    build_folder_rename,
+    build_folder_render,
+    build_rename,
+    new_id,
+)
 from .store import Store
 from .stream import StreamResult, tee_sse
 from .work import WorkCopyError, WorkStore
@@ -69,7 +96,7 @@ def _chat_response_dict(
     return {"status": status, "usage": usage, "finish_reason": finish_reason, "message": message}
 
 
-def _conversation_summary(conversation: Conversation) -> dict[str, Any]:
+def _conversation_summary(conversation: Conversation, folder: str) -> dict[str, Any]:
     return {
         "key": conversation.key,
         "branch": conversation.branch,
@@ -78,6 +105,7 @@ def _conversation_summary(conversation: Conversation) -> dict[str, Any]:
         "date": conversation.date,
         "turns": len(conversation.turns),
         "filename": conversation.filename,
+        "folder": folder,
     }
 
 
@@ -142,6 +170,12 @@ def create_app(
     write_lock = asyncio.Lock()
     upstream_host = urlsplit(config.upstream_base_url).netloc
 
+    def rebuild_index() -> None:
+        nonlocal index
+        index = ConversationIndex.from_records(store.records)
+        write_conversations_dir(config, index.conversations)
+        write_index(config, index.conversations)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
@@ -193,11 +227,14 @@ def create_app(
 
     @app.get("/", response_class=HTMLResponse)
     async def gui_root() -> HTMLResponse:
-        return HTMLResponse(INDEX_HTML)
+        return HTMLResponse(INDEX_HTML, headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/conversations")
     async def list_conversations() -> list[dict[str, Any]]:
-        return [_conversation_summary(conversation) for conversation in index.conversations]
+        return [
+            _conversation_summary(conversation, index.folder_of(conversation))
+            for conversation in index.conversations
+        ]
 
     @app.post("/api/conversations/{key}/rename")
     async def rename_conversation(key: str, request: Request) -> Response:
@@ -233,20 +270,123 @@ def create_app(
                 stale = config.conversations_dir / old_filename
                 stale.unlink(missing_ok=True)
             write_index(config, index.conversations)
-        return JSONResponse(_conversation_summary(conversation))
+        return JSONResponse(_conversation_summary(conversation, index.folder_of(conversation)))
 
     @app.get("/api/conversations/{key}/content")
     async def conversation_content(key: str, branch: int = 0) -> Response:
         conversation = index.get(key, branch)
         if conversation is None:
             return JSONResponse({"error": "unknown conversation"}, status_code=404)
+        markdown = render_conversation(conversation)
+        mode = index.render_mode_of(conversation)
         return JSONResponse(
             {
                 "name": conversation.name or conversation.title,
                 "filename": conversation.filename,
-                "content": render_conversation(conversation),
+                "content": markdown,
+                "html": render_markdown_html(markdown, plain_code=(mode == RENDER_PLAIN_CODE)),
+                "render": mode,
             }
         )
+
+    @app.delete("/api/conversations/{key}")
+    async def purge_conversation(key: str, branch: int = 0) -> Response:
+        async with write_lock:
+            conversation = index.get(key, branch)
+            if conversation is None:
+                return JSONResponse({"error": "unknown conversation"}, status_code=404)
+            removed = await store.purge(set(conversation.record_ids))
+            rebuild_index()
+        return JSONResponse({"deleted": True, "removed_records": removed})
+
+    @app.get("/api/folders")
+    async def list_folders() -> JSONResponse:
+        return JSONResponse({"folders": index.folders()})
+
+    @app.post("/api/folders")
+    async def create_conversation_folder(request: Request) -> Response:
+        payload = await read_json_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        name = payload.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return JSONResponse({"error": "name is required"}, status_code=400)
+        parent = payload.get("parent") or ""
+        if not isinstance(parent, str):
+            return JSONResponse({"error": "parent must be a string"}, status_code=400)
+        if not index.has_folder(parent):
+            return JSONResponse({"error": "unknown parent folder"}, status_code=404)
+        folder_id = new_id()
+        record = build_folder_create(folder_id, name.strip(), parent)
+        async with write_lock:
+            await store.append(record)
+            index.apply(record)
+        return JSONResponse({"id": folder_id, "name": name.strip(), "parent": parent})
+
+    @app.patch("/api/folders/{folder_id}")
+    async def rename_conversation_folder(folder_id: str, request: Request) -> Response:
+        payload = await read_json_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        name = payload.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return JSONResponse({"error": "name is required"}, status_code=400)
+        if not index.has_folder(folder_id):
+            return JSONResponse({"error": "unknown folder"}, status_code=404)
+        record = build_folder_rename(folder_id, name.strip())
+        async with write_lock:
+            await store.append(record)
+            index.apply(record)
+        return JSONResponse({"id": folder_id, "name": name.strip()})
+
+    @app.delete("/api/folders/{folder_id}")
+    async def delete_conversation_folder(folder_id: str) -> Response:
+        if not index.has_folder(folder_id):
+            return JSONResponse({"error": "unknown folder"}, status_code=404)
+        record = build_folder_delete(folder_id)
+        async with write_lock:
+            await store.append(record)
+            index.apply(record)
+        return JSONResponse({"id": folder_id, "deleted": True})
+
+    @app.post("/api/folders/{folder_id}/render")
+    async def set_conversation_folder_render(folder_id: str, request: Request) -> Response:
+        payload = await read_json_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        mode = payload.get("mode")
+        if mode not in RENDER_MODES:
+            return JSONResponse({"error": "unknown render mode"}, status_code=400)
+        if not index.has_folder(folder_id):
+            return JSONResponse({"error": "unknown folder"}, status_code=404)
+        record = build_folder_render(folder_id, mode)
+        async with write_lock:
+            await store.append(record)
+            index.apply(record)
+        return JSONResponse({"id": folder_id, "render": mode})
+
+    @app.post("/api/conversations/{key}/folder")
+    async def assign_conversation_folder(key: str, request: Request) -> Response:
+        payload = await read_json_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        try:
+            branch = int(payload.get("branch", 0) or 0)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "branch must be an integer"}, status_code=400)
+        folder = payload.get("folder") or ""
+        if not isinstance(folder, str):
+            return JSONResponse({"error": "folder must be a string"}, status_code=400)
+        conversation = index.get(key, branch)
+        if conversation is None:
+            return JSONResponse({"error": "unknown conversation"}, status_code=404)
+        if not index.has_folder(folder):
+            return JSONResponse({"error": "unknown folder"}, status_code=404)
+        record = build_folder_assign(folder, key, branch)
+        async with write_lock:
+            await store.append(record)
+            index.apply(record)
+        return JSONResponse(_conversation_summary(conversation, index.folder_of(conversation)))
 
     @app.get("/api/epub/files")
     async def list_epub_files() -> dict[str, list[str]]:
@@ -255,22 +395,103 @@ def create_app(
             "out": list_epubs(config.epub_out_dir),
         }
 
+    @app.get("/api/epub/tree")
+    async def epub_library_tree() -> Response:
+        roots = epub_tree(config.epub_dir)
+        names = {entry["id"]: entry["name"] for entry in work_store.list()}
+        for root in roots:
+            if root.get("name") != "work":
+                continue
+            for child in root.get("children", []):
+                work_id = Path(child["path"]).stem
+                if work_id in names:
+                    child["name"] = names[work_id]
+        return JSONResponse({"roots": roots})
+
+    @app.post("/api/epub/folder")
+    async def create_epub_folder(request: Request) -> Response:
+        payload = await read_json_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        path = payload.get("path")
+        if not isinstance(path, str) or not path.strip():
+            return JSONResponse({"error": "path is required"}, status_code=400)
+        try:
+            create_folder(config.epub_dir, path)
+        except EpubPathError as error:
+            return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"created": path})
+
+    @app.post("/api/epub/folder/rename")
+    async def rename_epub_folder(request: Request) -> Response:
+        payload = await read_json_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        source = payload.get("from")
+        target = payload.get("to")
+        if not isinstance(source, str) or not isinstance(target, str):
+            return JSONResponse({"error": "from and to are required"}, status_code=400)
+        try:
+            rename_folder(config.epub_dir, source, target)
+        except EpubPathError as error:
+            return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"renamed": target})
+
+    @app.delete("/api/epub/folder")
+    async def delete_epub_folder(path: str) -> Response:
+        try:
+            delete_folder(config.epub_dir, path)
+        except EpubPathError as error:
+            return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"deleted": path})
+
+    @app.post("/api/epub/move")
+    async def move_epub_file(request: Request) -> Response:
+        payload = await read_json_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        source = payload.get("from")
+        target = payload.get("to")
+        if not isinstance(source, str) or not isinstance(target, str):
+            return JSONResponse({"error": "from and to are required"}, status_code=400)
+        try:
+            move_file(config.epub_dir, source, target)
+        except EpubPathError as error:
+            return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"moved": target})
+
+    @app.delete("/api/epub/file")
+    async def delete_epub_file(path: str) -> Response:
+        try:
+            delete_file(config.epub_dir, path)
+        except EpubPathError as error:
+            return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"deleted": path})
+
     @app.post("/api/epub/convert")
     async def convert_epub_file(request: Request) -> Response:
         payload = await read_json_object(request)
         if isinstance(payload, JSONResponse):
             return payload
-        name = _epub_filename(payload.get("name"))
-        if name is None:
-            return JSONResponse({"error": "name is required"}, status_code=400)
-        source = config.epub_inbox_dir / name
-        if not source.is_file():
-            return JSONResponse({"error": f"file not found: {name}"}, status_code=404)
+        rel = payload.get("path")
+        if rel is None:
+            name = payload.get("name")
+            if name is None:
+                return JSONResponse({"error": "path is required"}, status_code=400)
+            rel = "inbox/" + str(name)
         try:
-            destination = convert_epub(source, config.epub_out_dir)
+            source = resolve_epub_path(config.epub_dir, rel, roots=("inbox",))
+        except EpubPathError as error:
+            return JSONResponse({"error": str(error)}, status_code=400)
+        if not source.exists():
+            return JSONResponse({"error": f"path not found: {rel}"}, status_code=404)
+        try:
+            result = convert_path(config.epub_dir, rel)
         except EpubError as error:
             return JSONResponse({"error": str(error)}, status_code=422)
-        return JSONResponse({"input": name, "output": destination.name})
+        if result["kind"] == "file":
+            return JSONResponse({"input": result["input"], "output": result["output"]})
+        return JSONResponse({"converted": result["converted"], "failed": result["failed"]})
 
     @app.post("/api/epub/upload")
     async def upload_epub(request: Request) -> Response:
@@ -279,22 +500,39 @@ def create_app(
             return JSONResponse({"error": "name is required"}, status_code=400)
         if Path(name).suffix.lower() != ".epub":
             return JSONResponse({"error": "file must be an .epub"}, status_code=400)
-        destination = unique_output(config.epub_inbox_dir, name)
+        directory = config.epub_inbox_dir
+        target_dir = request.query_params.get("dir")
+        if target_dir:
+            try:
+                directory = resolve_epub_path(config.epub_dir, target_dir, roots=("inbox",))
+            except EpubPathError as error:
+                return JSONResponse({"error": str(error)}, status_code=400)
+            if not directory.is_dir():
+                return JSONResponse({"error": f"folder not found: {target_dir}"}, status_code=404)
+        directory.mkdir(parents=True, exist_ok=True)
+        destination = unique_output(directory, name)
         destination.write_bytes(await request.body())
         return JSONResponse({"name": destination.name})
 
     @app.post("/api/epub/scan")
     async def scan_epub_inbox() -> JSONResponse:
-        converted: list[dict[str, str]] = []
-        failed: list[dict[str, str]] = []
-        for name in list_epubs(config.epub_inbox_dir):
-            try:
-                destination = convert_epub(config.epub_inbox_dir / name, config.epub_out_dir)
-            except EpubError as error:
-                failed.append({"input": name, "error": str(error)})
-                continue
-            converted.append({"input": name, "output": destination.name})
-        return JSONResponse({"converted": converted, "failed": failed})
+        try:
+            result = convert_path(config.epub_dir, "inbox")
+        except EpubError as error:
+            return JSONResponse(
+                {"converted": [], "failed": [{"input": "inbox", "error": str(error)}]}
+            )
+        return JSONResponse({"converted": result["converted"], "failed": result["failed"]})
+
+    @app.get("/api/epub/file")
+    async def download_epub_file(path: str) -> Response:
+        try:
+            target = resolve_epub_path(config.epub_dir, path, roots=("inbox", "out"))
+        except EpubPathError as error:
+            return JSONResponse({"error": str(error)}, status_code=400)
+        if not target.is_file():
+            return JSONResponse({"error": f"file not found: {path}"}, status_code=404)
+        return FileResponse(target, media_type="application/epub+zip", filename=target.name)
 
     @app.get("/api/epub/out/{name}")
     async def download_epub(name: str) -> Response:
@@ -306,6 +544,10 @@ def create_app(
             return JSONResponse({"error": f"file not found: {safe}"}, status_code=404)
         return FileResponse(path, media_type="application/epub+zip", filename=safe)
 
+    @app.get("/api/epub/work")
+    async def list_work_copies() -> Response:
+        return JSONResponse({"work": work_store.list()})
+
     @app.post("/api/epub/work")
     async def create_work_copy(request: Request) -> Response:
         payload = await read_json_object(request)
@@ -316,9 +558,15 @@ def create_app(
         if isinstance(selected, JSONResponse):
             return selected
 
+        name = payload.get("name")
+        if name is not None and not isinstance(name, str):
+            return JSONResponse({"error": "name must be a string"}, status_code=400)
+
         content = "\n\n".join(render_conversation(conversation) for conversation in selected)
-        work_id = work_store.create(content)
-        return JSONResponse({"id": work_id, "content": content})
+        work_id = work_store.create(content, name)
+        return JSONResponse(
+            {"id": work_id, "name": work_store.name(work_id), "content": content}
+        )
 
     @app.get("/api/epub/work/{work_id}")
     async def read_work_copy(work_id: str) -> Response:
@@ -327,6 +575,20 @@ def create_app(
         except WorkCopyError:
             return JSONResponse({"error": "unknown work copy"}, status_code=404)
         return JSONResponse({"id": work_id, "content": content})
+
+    @app.patch("/api/epub/work/{work_id}")
+    async def rename_work_copy(work_id: str, request: Request) -> Response:
+        payload = await read_json_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        name = payload.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return JSONResponse({"error": "name is required"}, status_code=400)
+        try:
+            work_store.rename(work_id, name)
+        except WorkCopyError:
+            return JSONResponse({"error": "unknown work copy"}, status_code=404)
+        return JSONResponse({"id": work_id, "name": name.strip()})
 
     @app.get("/api/epub/work/{work_id}/download")
     async def download_work_copy(work_id: str) -> Response:
@@ -375,10 +637,11 @@ def create_app(
                 return JSONResponse({"error": "work must be a string"}, status_code=400)
             try:
                 markdown = work_store.read(work_id)
+                work_title = title.strip() if isinstance(title, str) and title.strip() else work_store.name(work_id)
             except WorkCopyError:
                 return JSONResponse({"error": "unknown work copy"}, status_code=404)
             try:
-                book = build_epub_from_document(markdown, config.epub_out_dir, title=title)
+                book = build_epub_from_document(markdown, config.epub_out_dir, title=work_title)
             except EpubError as error:
                 return JSONResponse({"error": str(error)}, status_code=422)
             return JSONResponse({"output": book.path.name, "title": book.title})

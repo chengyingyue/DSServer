@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
-from .models import RENAME_KIND
+from .models import FOLDER_KIND, RENAME_KIND, RENDER_NORMAL
 from .naming import unique_name
 from .store import read_records
 
@@ -115,6 +115,7 @@ class Conversation:
     name_order: int = 0
     history: list[tuple[str, str]] = field(default_factory=list)
     turns: list[Turn] = field(default_factory=list)
+    record_ids: list[str] = field(default_factory=list)
 
 
 def _new_conversation(
@@ -145,6 +146,10 @@ class ConversationIndex:
         self._order: list[Conversation] = []
         self._used_names: set[str] = set()
         self._seq = 0
+        self._folders: dict[str, dict[str, Any]] = {}
+        self._folder_order: list[str] = []
+        self._assignments: dict[tuple[str, int], tuple[str, int]] = {}
+        self._renders: dict[str, tuple[str, int]] = {}
 
     @property
     def conversations(self) -> list[Conversation]:
@@ -155,6 +160,63 @@ class ConversationIndex:
         if branches is None or branch < 0 or branch >= len(branches):
             return None
         return branches[branch]
+
+    def has_folder(self, folder: str) -> bool:
+        if not folder:
+            return True
+        entry = self._folders.get(folder)
+        return entry is not None and not entry.get("deleted")
+
+    def folders(self) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        for folder_id in self._folder_order:
+            entry = self._folders.get(folder_id)
+            if entry is None or entry.get("deleted"):
+                continue
+            result.append(
+                {
+                    "id": folder_id,
+                    "name": entry["name"],
+                    "parent": self._live_parent(entry.get("parent") or ""),
+                    "render": self._render_for_folder(folder_id),
+                }
+            )
+        return result
+
+    def folder_of(self, conversation: Conversation) -> str:
+        assignment = self._assignments.get((conversation.key, conversation.branch))
+        if assignment is None:
+            return ""
+        return self._live_parent(assignment[0])
+
+    def render_mode_of(self, conversation: Conversation) -> str:
+        return self._render_for_folder(self.folder_of(conversation))
+
+    def _render_for_folder(self, folder: str) -> str:
+        seen: set[str] = set()
+        while folder and folder not in seen:
+            seen.add(folder)
+            mode = self._renders.get(folder)
+            if mode is not None:
+                return mode[0]
+            entry = self._folders.get(folder)
+            if entry is None:
+                break
+            folder = self._live_parent(entry.get("parent") or "")
+        return RENDER_NORMAL
+
+    def _live_parent(self, parent: str) -> str:
+        seen: set[str] = set()
+        current = parent
+        while current and current not in seen:
+            seen.add(current)
+            entry = self._folders.get(current)
+            if entry is None:
+                return ""
+            if not entry.get("deleted"):
+                return current
+            current = entry.get("parent") or ""
+        return ""
 
     def name_in_use(self, name: str, conversation: Conversation) -> bool:
         candidate = f"{sanitize_stem(name)}.md".lower()
@@ -175,6 +237,9 @@ class ConversationIndex:
         kind = record.get("kind")
         if kind == RENAME_KIND:
             return self._apply_rename(record, self._seq)
+        if kind == FOLDER_KIND:
+            self._apply_folder(record, self._seq)
+            return None
         if kind != "chat":
             return None
         request = record.get("request") or {}
@@ -213,6 +278,9 @@ class ConversationIndex:
             )
         )
         conversation.history = signatures + [_signature(response_message)]
+        record_id = record.get("id")
+        if isinstance(record_id, str):
+            conversation.record_ids.append(record_id)
         return conversation
 
     def _apply_rename(self, record: dict[str, Any], order: int) -> Conversation | None:
@@ -240,7 +308,68 @@ class ConversationIndex:
         conversation.name = name.strip()
         conversation.name_ts = ts
         conversation.name_order = order
+        record_id = record.get("id")
+        if isinstance(record_id, str):
+            conversation.record_ids.append(record_id)
         return conversation
+
+    def _apply_folder(self, record: dict[str, Any], order: int) -> None:
+        op = record.get("op")
+        folder = record.get("folder")
+        if not isinstance(folder, str):
+            return
+        if op == "create":
+            name = record.get("name")
+            if not isinstance(name, str) or not name.strip() or folder in self._folders:
+                return
+            parent = record.get("parent")
+            self._folders[folder] = {
+                "id": folder,
+                "name": name.strip(),
+                "parent": parent if isinstance(parent, str) else "",
+                "deleted": False,
+            }
+            self._folder_order.append(folder)
+            return
+        if op == "assign":
+            key = record.get("key")
+            if not isinstance(key, str):
+                return
+            try:
+                branch = int(record.get("branch", 0) or 0)
+            except (TypeError, ValueError):
+                return
+            conversation = self.get(key, branch)
+            if conversation is None:
+                return
+            previous = self._assignments.get((key, branch))
+            if previous is not None and previous[1] > order:
+                return
+            self._assignments[(key, branch)] = (folder, order)
+            record_id = record.get("id")
+            if isinstance(record_id, str):
+                conversation.record_ids.append(record_id)
+            return
+        entry = self._folders.get(folder)
+        if entry is None:
+            return
+        if op == "rename":
+            name = record.get("name")
+            if isinstance(name, str) and name.strip():
+                entry["name"] = name.strip()
+            return
+        if op == "delete":
+            entry["deleted"] = True
+            return
+        if op == "render":
+            mode = record.get("mode")
+            if not isinstance(mode, str):
+                return
+            previous = self._renders.get(folder)
+            if previous is not None and previous[1] > order:
+                return
+            self._renders[folder] = (mode, order)
+            return
 
 
 def build_conversations(records: list[dict[str, Any]]) -> list[Conversation]:

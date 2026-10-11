@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -35,3 +37,26 @@ class Store:
                 handle.write(line + "\n")
                 handle.flush()
             self.records.append(record)
+
+    async def purge(self, ids: set[str]) -> int:
+        async with self._lock:
+            remaining = [record for record in self.records if record.get("id") not in ids]
+            removed = len(self.records) - len(remaining)
+            if not removed:
+                return 0
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            handle, tmp_name = tempfile.mkstemp(
+                suffix=".jsonl", dir=self.path.parent
+            )
+            os.close(handle)
+            tmp = Path(tmp_name)
+            try:
+                with tmp.open("w", encoding="utf-8") as writer:
+                    for record in remaining:
+                        writer.write(json.dumps(record, ensure_ascii=False) + "\n")
+                os.replace(tmp, self.path)
+            except Exception:
+                tmp.unlink(missing_ok=True)
+                raise
+            self.records = remaining
+            return removed

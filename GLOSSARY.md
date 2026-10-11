@@ -25,7 +25,7 @@ The content the Client adds to a request before sending it (system messages, per
 _Avoid_: system prompt, hidden prompt, boilerplate；系统提示词、隐藏提示词、模板
 
 **Record**（记录）:
-One line in the exchange log (`exchanges.jsonl`). A Record is one of several kinds; a chat Exchange is one kind, and a Conversation rename is another.
+One line in the exchange log (`exchanges.jsonl`). A Record is one of several kinds; a chat Exchange is one kind, and a Conversation rename and a Conversation Folder op are others.
 _Avoid_: entry, event, row；条目、事件
 
 **Facts Store**（事实源 / 日志）:
@@ -43,6 +43,14 @@ _Avoid_: title, filename, slug；标题、文件名
 **Conversation Identity**（会话标识）:
 The pair of a Conversation's **key** and its **branch**, which together address exactly one Conversation. Used when a Conversation must be referenced unambiguously, such as when selecting Conversations to build or rename.
 _Avoid_: id, address, ref；编号、地址
+
+**Conversation Folder**（会话文件夹）:
+A nested, human-made grouping used to organise Conversations in the GUI. Owned by the human and stored as a Record in the Facts Store — not derived from filenames. A Conversation sits in at most one folder; one with none is Unfiled.
+_Avoid_: tag, category, directory；标签、分类、目录
+
+**Render Mode**（渲染模式）:
+A per-Conversation-Folder setting controlling how fenced code blocks are shown in the Rendered View: `normal` renders them as code; `plain_code` ignores the ` ``` ` fences and renders the fenced content as ordinary Markdown. Inherited by child folders from their nearest ancestor; Unfiled is always `normal`.
+_Avoid_: theme, view, format；主题、视图、格式
 
 **Work Copy**（工作副本）:
 An editable, disposable copy of one or more Conversations made for refinement before being packaged into an EPUB. Edits to a Work Copy never change the original Conversations or the Facts Store.
