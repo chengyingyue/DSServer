@@ -69,9 +69,20 @@ sending its own API key; the Bridge passes it through and never stores it.
 ### Save a conversation without calling the model
 
 `POST /save` accepts the same body as a chat request, but the Bridge **records
-it and does not forward it upstream**. It answers with the marker text
-`conversation saved` in the assistant position, so the saved turn shows up like
-any model reply — and appears in the rendered Markdown.
+it and does not forward it upstream**. It answers with the user's latest message
+followed by `saved` in the assistant position, so the saved turn shows up like
+any model reply — and appears in the rendered Markdown:
+
+```
+### Human (user)
+最后一轮输入
+
+### Assistant
+最后一轮输入
+saved
+```
+
+(If the latest user content is not plain text, the reply is just `saved`.)
 
 ### Run in the background (no terminal left open)
 
@@ -172,8 +183,8 @@ needed. See `Tailscale 配置指南.md` for the full setup steps.
 - [ ] `uv sync` succeeds and `.venv` is created
 - [ ] `uv run dsserver` listens on port 8787
 - [ ] `uv run dsserver serve --env test` listens on port 8788
-- [ ] `POST /save` returns `conversation saved`, forwards nothing upstream, and
-      appears in the Markdown
+- [ ] `POST /save` returns the latest user input + `saved`, forwards nothing
+      upstream, and appears in the Markdown
 - [ ] A rendered Conversation shows the latest turn's `Prompt token` / `Total token`
       and the percentage at the top
 - [ ] A phone app on the same Wi-Fi uses the Bridge once its base URL points at it

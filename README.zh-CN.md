@@ -74,8 +74,19 @@ uv run dsserver serve --env test
 ### 只保存会话、不调用模型
 
 `POST /save` 接收与聊天请求相同的请求体，但桥接器**只记录、不转发上游**。
-它会在助手位置返回一行标记文字 `conversation saved`，因此这次保存会像普通模型
-回复一样出现——并出现在渲染出的 Markdown 里。
+它会在助手位置返回「用户最新一条消息 + `saved`」，因此这次保存会像普通模型
+回复一样出现——并出现在渲染出的 Markdown 里：
+
+```
+### Human (user)
+最后一轮输入
+
+### Assistant
+最后一轮输入
+saved
+```
+
+（若最新一条用户内容不是纯文本，回复就只有 `saved`。）
 
 ### 后台运行（无需一直开着终端）
 
@@ -168,7 +179,7 @@ Total token: 89,000
 - [ ] `uv sync` 成功，`.venv` 已生成
 - [ ] `uv run dsserver` 正常监听 8787 端口
 - [ ] `uv run dsserver serve --env test` 正常监听 8788 端口
-- [ ] `POST /save` 返回 `conversation saved`，且不转发上游、出现在 Markdown 中
+- [ ] `POST /save` 在助手位置返回「最新用户输入 + saved」，且不转发上游、出现在 Markdown 中
 - [ ] 渲染出的会话顶部显示最新一轮的 `Prompt token` / `Total token` 与占比
 - [ ] 同一 Wi-Fi 下的手机 App，Base URL 指向桥接器后可正常对话
 - [ ] 真实手机使用后，`data/` 下出现记录并能渲染为 Markdown

@@ -75,7 +75,18 @@ HOP_BY_HOP_HEADERS = {
 UPSTREAM_TIMEOUT = httpx.Timeout(600.0, connect=30.0)
 
 SAVE_PATH = "/save"
-SAVE_MARKER = "conversation saved"
+SAVE_MARKER = "saved"
+
+
+def _save_reply(messages: list[dict[str, Any]]) -> str:
+    for message in reversed(messages):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            return f"{content}\n{SAVE_MARKER}"
+        break
+    return SAVE_MARKER
 
 
 def _forward_request_headers(headers: Mapping[str, str]) -> dict[str, str]:
@@ -699,7 +710,7 @@ def create_app(
         except (ValueError, TypeError):
             return JSONResponse({"error": "invalid chat request"}, status_code=400)
 
-        message = {"role": "assistant", "content": SAVE_MARKER}
+        message = {"role": "assistant", "content": _save_reply(chat_request.messages)}
         record = build_exchange(
             CHAT_KIND,
             build_client_info(request.headers, config.header_whitelist),
