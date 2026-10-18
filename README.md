@@ -217,8 +217,15 @@ count, characters, lines, bytes, and the percentage of `smart_zone_tokens`.
 ## Going remote later
 
 To use the Bridge from outside the home, put it behind a free
-[Tailscale](https://tailscale.com/) network; no code or configuration change is
-needed. See `Tailscale 配置指南.md` for the full setup steps.
+[Tailscale](https://tailscale.com/) network and expose it with
+`tailscale serve`; no server code change is needed. See
+`Tailscale 配置指南.md` for the setup steps.
+
+The local Client (opencode on this PC) points straight at the Bridge:
+`~/.config/opencode/opencode.json` → `baseURL = "http://127.0.0.1:8787"`.
+Remote Clients use the Serve URL, e.g. `https://rog.tail6cd8d6.ts.net/`, with no
+port. When a remote Client cannot connect, run
+`uv run python scripts/check_remote.py`.
 
 ## Quick verification checklist
 
@@ -233,4 +240,6 @@ needed. See `Tailscale 配置指南.md` for the full setup steps.
 - [ ] A phone app on the same Wi-Fi uses the Bridge once its base URL points at it
 - [ ] After real phone use, `data/` holds records that render to Markdown
 - [ ] `http://<host>:8787/` shows the Conversation list and allows renaming
+- [ ] `uv run python scripts/check_remote.py` passes (Tailscale Running,
+      Serve → 8787, HTTPS 200)
 - [ ] An EPUB in `data/epub/inbox/` converts to a result in `data/epub/out/`

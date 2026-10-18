@@ -115,7 +115,11 @@ def stop(env: str) -> None:
 def start(env: str, port: int) -> None:
     log_path = ROOT / f"dsserver-{env}.log"
     error_path = ROOT / f"dsserver-{env}.err.log"
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
     with log_path.open("ab") as output, error_path.open("ab") as error:
+        for handle in (output, error):
+            handle.write(f"\n--- launched {stamp} ({env}) ---\n".encode())
+            handle.flush()
         if os.name == "nt":
             process = subprocess.Popen(
                 command(env),

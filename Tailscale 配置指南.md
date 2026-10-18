@@ -18,7 +18,7 @@ https://chat.deepseek.com/share/1pxebi8y4rdlge2iya
 
 ### 1. 确认本地服务正常
 
-假设你的 uv server 监听在 `127.0.0.1:8787`。服务本身只需绑定本地回环地址，不用改成 `0.0.0.0`，Tailscale 会负责转发。
+假设你的 uv server 监听在 `127.0.0.1:8787`。绑定 `127.0.0.1` 或 `0.0.0.0` 都可以，Tailscale Serve 只转发到 `127.0.0.1:8787`。
 
 ### 2. 开启 Tailscale Serve
 
@@ -29,6 +29,8 @@ tailscale serve --bg http://127.0.0.1:8787
 ```
 
 > 把 `8787` 换成你实际的服务端口。
+
+**托盘进程必须保持运行。** Windows 版是客户端模式：最后一个 GUI 客户端（`tailscale-ipn.exe`）断开时，tailscaled 会自动断开 Tailscale，状态掉回 `NoState`。再执行一次 `tailscale up --unattended`，关闭托盘窗口或注销后仍保持在线。
 
 **首次运行会提示开启 Serve 功能**，按终端输出的链接去浏览器登录并授权，然后重新运行上面的命令。
 
@@ -78,6 +80,26 @@ tailscale serve status
 ### 提示 `Serve is not enabled on your tailnet`
 按终端输出的链接去浏览器登录并授权开启 Serve，然后重新运行命令。
 
+### 电脑端连不上（`NoState` / Serve 丢失）
+
+先跑仓库里的自检，一条命令看全部状态：
+
+```powershell
+uv run python scripts/check_remote.py
+```
+
+再按症状对照：
+
+| 症状 | 含义 | 处理 |
+| --- | --- | --- |
+| `BackendState=NoState`、`Tailscale is starting` | daemon 未连上；常见于托盘进程没开 | 启动 `C:\Program Files\Tailscale\tailscale-ipn.exe` |
+| 日志有 `client disconnected (…): disconnecting Tailscale` | 最后一个 GUI 客户端退出，Tailscale 被断开 | 同上，并执行 `tailscale up --unattended` |
+| `tailscale serve status` 输出 `No serve config` | Serve 规则丢失（daemon 卡死或状态重置） | 重新执行 `tailscale serve --bg http://127.0.0.1:8787` |
+| `tailscale status` 显示 `Unable to connect to the Tailscale coordination server` | 网络到控制面不通 | 检查代理/VPN，再 `tailscale up` |
+| 手机能连、本机 opencode 连不上 | 本机 Client 的 baseURL 指向 ts.net，而 Tailscale 已断 | 见上一行；或把本机 baseURL 改成 `http://127.0.0.1:8787` |
+
+服务端日志在 `C:\ProgramData\Tailscale\Logs\tailscale-service-*.txt`。普通权限读不了，需要管理员复制出来看；最新的文件即当前进程。
+
 ### 手机端连不上
 - 确认手机 Tailscale 处于“已连接”状态。
 - 确认 base URL 填的是 `https://...ts.net`，没有多余端口号。
@@ -91,7 +113,7 @@ tailscale serve status
 
 ## 五、日常使用
 
-- **电脑端**：Tailscale 保持运行，Serve 规则是持久的，重启后会自动生效（`--bg` 参数）。
+- **电脑端**：Tailscale 保持运行（托盘进程 `tailscale-ipn.exe` 必须在跑），并执行一次 `tailscale up --unattended`，这样关闭托盘窗口或注销后仍然在线。Serve 规则通常重启后仍在，但 daemon 卡死或状态被重置后会丢失——重连后先跑 `tailscale serve status` 确认。
 - **手机端**：每次使用时打开 Tailscale 开关即可。
 - **关闭 Serve**（如果需要）：
 

@@ -30,6 +30,11 @@ The test server shares `data/` with production; use it for read-only checks and
 keep write tests in pytest temp stores. Stop servers before `uv sync` if
 `.venv/Scripts/dsserver.exe` is locked (`--stop --env all`).
 
+Remote Clients (opencode on this PC, the phone) reach the Bridge through
+Tailscale. When one of them cannot connect, run
+`uv run python scripts/check_remote.py` first: it checks the tailnet state, the
+Serve rule and the HTTPS path in one command. See `README.md` §Going remote.
+
 ## Agent skills
 
 ### Issue tracker
