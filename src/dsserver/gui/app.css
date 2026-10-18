@@ -85,6 +85,13 @@
   #confirm-dialog { border: 1px solid var(--border); border-radius: 12px; min-width: 20rem; max-width: 32rem; }
   #confirm-dialog h3 { margin: 0 0 0.4rem; }
   #work-content { width: 100%; padding: 0.6rem; border: 1px solid var(--border); border-radius: 10px; font: 13px/1.5 ui-monospace, Consolas, monospace; }
+  .drop-zone { border: 1px dashed var(--border); border-radius: 10px; padding: 0.7rem; text-align: center; color: var(--muted); margin-bottom: 0.7rem; }
+  .drop-zone.over { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  #token-text { width: 100%; padding: 0.6rem; border: 1px solid var(--border); border-radius: 10px; font: 13px/1.5 ui-monospace, Consolas, monospace; }
+  #token-result:empty { display: none; }
+  #token-result { margin-top: 0.7rem; }
+  .token-total { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.2rem; }
+  .warning { color: #b45309; }
   #work-outline { margin-bottom: 0.5rem; }
   #work-outline ul { margin: 0.2rem 0; padding-left: 1.2rem; }
   #work-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }

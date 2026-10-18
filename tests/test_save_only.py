@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from .conftest import build_app, client_for, read_records
+from .conftest import BrokenTokenCounter, build_app, client_for, read_records
 
 
 def _no_upstream(request):
@@ -23,13 +23,23 @@ async def test_save_records_without_forwarding_and_returns_marker(config):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["choices"][0]["message"]["content"] == "Remember this.\nsaved"
+    assert body["choices"][0]["message"]["content"] == "Remember this.\nsaved · 4 tokens"
 
     records = read_records(config)
     assert len(records) == 1
     assert records[0]["kind"] == "chat"
-    assert records[0]["response"]["message"]["content"] == "Remember this.\nsaved"
+    assert records[0]["response"]["message"]["content"] == "Remember this.\nsaved · 4 tokens"
     assert records[0]["request"]["messages"] == request["messages"]
+
+
+async def test_save_accepts_the_canonical_completions_path(config):
+    app = build_app(config, _no_upstream)
+    request = {"messages": [{"role": "user", "content": "Remember this."}]}
+    async with client_for(app) as client:
+        response = await client.post("/save/chat/completions", json=request)
+
+    assert response.status_code == 200
+    assert response.json()["choices"][0]["message"]["content"] == "Remember this.\nsaved · 2 tokens"
 
 
 async def test_save_echoes_only_the_latest_user_message(config):
@@ -44,7 +54,7 @@ async def test_save_echoes_only_the_latest_user_message(config):
     async with client_for(app) as client:
         response = await client.post("/save", json=request)
 
-    assert response.json()["choices"][0]["message"]["content"] == "Second question\nsaved"
+    assert response.json()["choices"][0]["message"]["content"] == "Second question\nsaved · 6 tokens"
 
 
 async def test_save_without_user_message_returns_plain_marker(config):
@@ -53,7 +63,7 @@ async def test_save_without_user_message_returns_plain_marker(config):
     async with client_for(app) as client:
         response = await client.post("/save", json=request)
 
-    assert response.json()["choices"][0]["message"]["content"] == "saved"
+    assert response.json()["choices"][0]["message"]["content"] == "saved · 2 tokens"
 
 
 async def test_save_with_non_text_user_content_returns_plain_marker(config):
@@ -66,7 +76,7 @@ async def test_save_with_non_text_user_content_returns_plain_marker(config):
     async with client_for(app) as client:
         response = await client.post("/save", json=request)
 
-    assert response.json()["choices"][0]["message"]["content"] == "saved"
+    assert response.json()["choices"][0]["message"]["content"] == "saved · 0 tokens"
 
 
 async def test_saved_conversation_appears_in_markdown(config):
@@ -78,8 +88,30 @@ async def test_saved_conversation_appears_in_markdown(config):
     files = sorted(config.conversations_dir.glob("*.md"))
     assert len(files) == 1
     text = files[0].read_text(encoding="utf-8")
-    assert "Remember this.\nsaved" in text
+    assert "Remember this.\nsaved · 2 tokens" in text
     assert "Remember this." in text
+
+
+async def test_save_survives_tokenizer_failure(config):
+    app = build_app(config, _no_upstream, token_counter=BrokenTokenCounter())
+    request = {"messages": [{"role": "user", "content": "Remember this."}]}
+    async with client_for(app) as client:
+        response = await client.post("/save", json=request)
+
+    assert response.status_code == 200
+    assert response.json()["choices"][0]["message"]["content"] == "Remember this.\nsaved"
+
+
+async def test_save_survives_tokenizer_oserror(config):
+    app = build_app(
+        config, _no_upstream, token_counter=BrokenTokenCounter(OSError("disk full"))
+    )
+    request = {"messages": [{"role": "user", "content": "Remember this."}]}
+    async with client_for(app) as client:
+        response = await client.post("/save", json=request)
+
+    assert response.status_code == 200
+    assert response.json()["choices"][0]["message"]["content"] == "Remember this.\nsaved"
 
 
 async def test_save_rejects_invalid_body(config):
@@ -121,7 +153,7 @@ async def test_save_streaming_returns_sse(config):
         if content:
             deltas.append(content)
 
-    assert "".join(deltas) == "hello test\nsaved"
+    assert "".join(deltas) == "hello test\nsaved · 2 tokens"
     assert finish == "stop"
 
 
@@ -137,4 +169,4 @@ async def test_save_streaming_is_recorded_once(config):
 
     records = read_records(config)
     assert len(records) == 1
-    assert records[0]["response"]["message"]["content"] == "hello test\nsaved"
+    assert records[0]["response"]["message"]["content"] == "hello test\nsaved · 2 tokens"

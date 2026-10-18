@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import time
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
@@ -46,6 +47,7 @@ from .models import (
     OTHER_KIND,
     RENDER_MODES,
     RENDER_PLAIN_CODE,
+    build_chat_response,
     build_client_info,
     build_exchange,
     build_folder,
@@ -54,6 +56,16 @@ from .models import (
 )
 from .store import Store
 from .stream import StreamResult, tee_sse
+from .tokens import (
+    MAX_UPLOAD_BYTES,
+    Counter,
+    TokenCounter,
+    TokenError,
+    TokenInputError,
+    TokenizerUnavailable,
+    count_messages,
+    estimate_upload,
+)
 from .work import WorkCopyError, WorkStore
 
 HOP_BY_HOP_HEADERS = {
@@ -71,19 +83,22 @@ HOP_BY_HOP_HEADERS = {
 
 UPSTREAM_TIMEOUT = httpx.Timeout(600.0, connect=30.0)
 
-SAVE_PATH = "/save"
+SAVE_PATH = "/save/chat/completions"
+SAVE_ALIAS_PATH = "/save"
 SAVE_MARKER = "saved"
+UPLOAD_LIMIT_MESSAGE = f"file is larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
 
 
-def _save_reply(messages: list[dict[str, Any]]) -> str:
+def _save_reply(messages: list[dict[str, Any]], tokens: int | None) -> str:
+    marker = SAVE_MARKER if tokens is None else f"{SAVE_MARKER} · {tokens:,} tokens"
     for message in reversed(messages):
         if message.get("role") != "user":
             continue
         content = message.get("content")
         if isinstance(content, str):
-            return f"{content}\n{SAVE_MARKER}"
+            return f"{content}\n{marker}"
         break
-    return SAVE_MARKER
+    return marker
 
 
 def _sse_data(payload: dict[str, Any]) -> bytes:
@@ -115,15 +130,6 @@ def _forward_request_headers(headers: Mapping[str, str]) -> dict[str, str]:
 
 def _forward_response_headers(headers: Mapping[str, str]) -> dict[str, str]:
     return {name: value for name, value in headers.items() if name.lower() not in HOP_BY_HOP_HEADERS}
-
-
-def _chat_response_dict(
-    status: int,
-    usage: dict[str, Any] | None,
-    finish_reason: str | None,
-    message: dict[str, Any],
-) -> dict[str, Any]:
-    return {"status": status, "usage": usage, "finish_reason": finish_reason, "message": message}
 
 
 def _conversation_summary(conversation: Conversation, folder: str) -> dict[str, Any]:
@@ -182,7 +188,9 @@ async def _read_raw(upstream_response: httpx.Response) -> bytes:
 def create_app(
     config: Config,
     upstream_transport: httpx.AsyncBaseTransport | None = None,
+    token_counter: Counter | None = None,
 ) -> FastAPI:
+    counter = token_counter if token_counter is not None else TokenCounter(config.tokenizer_dir)
     client = httpx.AsyncClient(
         base_url=config.upstream_base_url,
         transport=upstream_transport,
@@ -286,6 +294,37 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     async def gui_root() -> HTMLResponse:
         return HTMLResponse(INDEX_HTML, headers={"Cache-Control": "no-cache"})
+
+    @app.post("/api/tokens")
+    async def count_tokens(request: Request) -> Response:
+        filename = request.query_params.get("filename") or "upload.txt"
+        encoding = request.query_params.get("encoding") or "utf-8"
+        raw = request.query_params.get("raw", "").lower() in {"1", "true", "yes", "on"}
+        length = request.headers.get("content-length")
+        if length is not None:
+            try:
+                if int(length) > MAX_UPLOAD_BYTES:
+                    return JSONResponse({"error": UPLOAD_LIMIT_MESSAGE}, status_code=413)
+            except ValueError:
+                pass
+        data = await request.body()
+        if len(data) > MAX_UPLOAD_BYTES:
+            return JSONResponse({"error": UPLOAD_LIMIT_MESSAGE}, status_code=413)
+        try:
+            estimate = await asyncio.to_thread(
+                estimate_upload,
+                data,
+                filename,
+                encoding=encoding,
+                raw=raw,
+                counter=counter,
+                smart_zone=config.smart_zone_tokens,
+            )
+        except TokenInputError as error:
+            return JSONResponse({"error": str(error)}, status_code=422)
+        except (TokenizerUnavailable, OSError) as error:
+            return JSONResponse({"error": str(error)}, status_code=503)
+        return JSONResponse(estimate.to_dict())
 
     @app.get("/api/conversations")
     async def list_conversations() -> list[dict[str, Any]]:
@@ -706,6 +745,7 @@ def create_app(
             return JSONResponse({"error": str(error)}, status_code=422)
         return JSONResponse({"output": book.path.name, "title": book.title})
 
+    @app.post(SAVE_ALIAS_PATH)
     @app.post(SAVE_PATH)
     async def save_only(request: Request) -> Response:
         body = await request.body()
@@ -714,12 +754,20 @@ def create_app(
         except (ValueError, TypeError):
             return JSONResponse({"error": "invalid chat request"}, status_code=400)
 
-        message = {"role": "assistant", "content": _save_reply(chat_request.messages)}
+        try:
+            tokens = await asyncio.to_thread(count_messages, chat_request.messages, counter)
+        except (TokenError, OSError) as error:
+            print(f"[save] token estimate unavailable: {error}", file=sys.stderr, flush=True)
+            tokens = None
+        message = {
+            "role": "assistant",
+            "content": _save_reply(chat_request.messages, tokens),
+        }
         record = build_exchange(
             CHAT_KIND,
             build_client_info(request.headers, config.header_whitelist),
             chat_request.to_request_dict(request.url.path),
-            _chat_response_dict(200, None, "stop", message),
+            build_chat_response(200, None, "stop", message),
             {"upstream": None},
         )
         await persist(record.to_dict(), markdown=True)
@@ -782,7 +830,7 @@ def create_app(
                 CHAT_KIND,
                 build_client_info(request.headers, config.header_whitelist),
                 chat_request.to_request_dict(request.url.path),
-                _chat_response_dict(status, usage, finish_reason, message),
+                build_chat_response(status, usage, finish_reason, message),
                 {"latency_ms": elapsed, "upstream": upstream_host},
             )
             await persist(record.to_dict(), markdown=True)
@@ -803,7 +851,7 @@ def create_app(
                     CHAT_KIND,
                     client_info,
                     request_dict,
-                    _chat_response_dict(status, result.usage, result.finish_reason, message),
+                    build_chat_response(status, result.usage, result.finish_reason, message),
                     {"latency_ms": latency_ms(), "upstream": upstream_host},
                     raw_sse=result.raw_sse if config.keep_raw_sse else None,
                 )

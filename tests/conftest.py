@@ -10,7 +10,9 @@ from fastapi import FastAPI
 
 from dsserver.app import create_app
 from dsserver.config import Config
+from dsserver.models import build_chat_response
 from dsserver.store import read_records as _read_records
+from dsserver.tokens import TokenizerUnavailable
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -29,6 +31,19 @@ def chat_response(content: str) -> dict[str, Any]:
         ],
         "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
     }
+
+
+def stored_chat_response(
+    content: str = "ok",
+    usage: dict[str, Any] | None = None,
+    finish_reason: str | None = "stop",
+) -> dict[str, Any]:
+    return build_chat_response(
+        200,
+        usage,
+        finish_reason,
+        {"role": "assistant", "content": content},
+    )
 
 
 def sequence_handler(responses: list[dict[str, Any]]) -> Handler:
@@ -62,8 +77,30 @@ def config(tmp_path) -> Config:
     )
 
 
-def build_app(config: Config, handler: Handler) -> FastAPI:
-    return create_app(config, upstream_transport=httpx.MockTransport(handler))
+class FakeTokenCounter:
+    def count(self, text: str) -> int:
+        return len(text.split())
+
+
+class BrokenTokenCounter:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error if error is not None else TokenizerUnavailable("offline")
+
+    def count(self, text: str) -> int:
+        raise self.error
+
+
+def build_app(
+    config: Config,
+    handler: Handler,
+    token_counter: Any | None = None,
+) -> FastAPI:
+    counter = FakeTokenCounter() if token_counter is None else token_counter
+    return create_app(
+        config,
+        upstream_transport=httpx.MockTransport(handler),
+        token_counter=counter,
+    )
 
 
 def client_for(app: FastAPI) -> httpx.AsyncClient:

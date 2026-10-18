@@ -702,6 +702,122 @@ async function upload() {
   await loadEpub();
 }
 
+let tokenFile = null;
+
+function setTokenStatus(message) {
+  document.getElementById('token-status').textContent = message;
+}
+
+function tokenNumber(value) {
+  return Number(value || 0).toLocaleString('en-US');
+}
+
+function showTokenResult(result) {
+  const container = document.getElementById('token-result');
+  container.replaceChildren();
+  const total = document.createElement('p');
+  total.className = 'token-total';
+  total.textContent = tokenNumber(result.tokens) + ' tokens';
+  container.appendChild(total);
+  const details = [];
+  if (result.smart_zone_percent !== null && result.smart_zone_percent !== undefined) {
+    details.push(result.smart_zone_percent + '% of ' + tokenNumber(result.smart_zone_tokens) + ' smart zone');
+  }
+  details.push(tokenNumber(result.characters) + ' characters');
+  details.push(tokenNumber(result.lines) + ' lines');
+  details.push(tokenNumber(result.bytes) + ' bytes');
+  details.push(result.mode === 'chat' ? 'chat extraction' : 'raw text');
+  details.push(result.encoding);
+  const line = document.createElement('p');
+  line.className = 'muted';
+  line.textContent = details.join(' \u00b7 ');
+  container.appendChild(line);
+  if (result.warning) {
+    const warning = document.createElement('p');
+    warning.className = 'warning';
+    warning.textContent = result.warning;
+    container.appendChild(warning);
+  }
+}
+
+function chooseTokenFile(file) {
+  tokenFile = file || null;
+  setTokenStatus(file ? file.name : '');
+}
+
+async function countTokens() {
+  const input = document.getElementById('token-file');
+  const pasted = document.getElementById('token-text').value;
+  const file = (input.files && input.files[0]) || tokenFile;
+  let body;
+  let filename;
+  if (file) {
+    body = await file.arrayBuffer();
+    filename = file.name;
+  } else if (pasted.trim()) {
+    body = new TextEncoder().encode(pasted);
+    filename = 'pasted.txt';
+  } else {
+    setTokenStatus('Choose a file or paste text first.');
+    return;
+  }
+  document.getElementById('token-result').replaceChildren();
+  const raw = document.getElementById('token-raw').checked;
+  const encoding = document.getElementById('token-encoding').value.trim() || 'utf-8';
+  setTokenStatus('Counting...');
+  const url = '/api/tokens?filename=' + encodeURIComponent(filename) +
+    '&raw=' + (raw ? '1' : '0') +
+    '&encoding=' + encodeURIComponent(encoding);
+  let response;
+  try {
+    response = await fetch(url, { method: 'POST', body: body });
+  } catch (error) {
+    setTokenStatus('Failed: ' + error);
+    return;
+  }
+  let result = {};
+  try { result = await response.json(); } catch (error) { result = {}; }
+  if (!response.ok) {
+    setTokenStatus('Failed: ' + (result.error || response.status));
+    return;
+  }
+  setTokenStatus(filename);
+  showTokenResult(result);
+}
+
+function setupTokenDrop() {
+  const input = document.getElementById('token-file');
+  const drop = document.getElementById('token-drop');
+  drop.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    drop.classList.add('over');
+  });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', (event) => {
+    event.preventDefault();
+    drop.classList.remove('over');
+    const file = event.dataTransfer.files && event.dataTransfer.files[0];
+    if (!file) return;
+    input.value = '';
+    chooseTokenFile(file);
+    document.getElementById('token-result').replaceChildren();
+  });
+  input.addEventListener('change', () => {
+    tokenFile = null;
+    const file = input.files && input.files[0];
+    chooseTokenFile(file || null);
+    document.getElementById('token-result').replaceChildren();
+  });
+  document.getElementById('token-count').addEventListener('click', countTokens);
+  document.getElementById('token-clear').addEventListener('click', () => {
+    tokenFile = null;
+    input.value = '';
+    document.getElementById('token-text').value = '';
+    document.getElementById('token-result').replaceChildren();
+    setTokenStatus('');
+  });
+}
+
 function selectedConversations() {
   const selected = [];
   for (const checkbox of document.querySelectorAll('#conv-tree .conv-check:checked')) {
@@ -1002,6 +1118,8 @@ document.getElementById('work-download').addEventListener('click', downloadWork)
 document.getElementById('work-build').addEventListener('click', buildWork);
 document.getElementById('work-discard').addEventListener('click', discardWork);
 document.getElementById('work-content').addEventListener('input', renderOutline);
+
+setupTokenDrop();
 
 loadConversations();
 loadEpub();

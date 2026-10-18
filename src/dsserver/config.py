@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_DEEP_PATHS: tuple[str, ...] = ("/chat/completions", "/v1/chat/completions")
+TOKENIZER_LABEL = "deepseek_v4"
 
 DEFAULT_HEADER_WHITELIST: tuple[str, ...] = (
     "user-agent",
@@ -47,6 +48,10 @@ class Config:
     @property
     def index_path(self) -> Path:
         return self.store_dir / "index.md"
+
+    @property
+    def tokenizer_dir(self) -> Path:
+        return self.store_dir / "tokenizers" / TOKENIZER_LABEL
 
     @property
     def epub_dir(self) -> Path:

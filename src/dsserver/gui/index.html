@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="wrap">
-<div class="page"><h1>DSServer</h1><span class="tag">local bridge &middot; gui v11</span></div>
+<div class="page"><h1>DSServer</h1><span class="tag">local bridge &middot; gui v13</span></div>
 
 <details class="section" id="section-epub" open>
   <summary><svg class="icon chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg><span>EPUB</span></summary>
@@ -42,6 +42,24 @@
     </div>
     <div class="tree-panel"><div id="conv-tree"></div></div>
     <p class="muted" id="conv-status"></p>
+  </div>
+</details>
+
+<details class="section" id="section-tokens" open>
+  <summary><svg class="icon chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg><span>Tokens</span></summary>
+  <div class="body">
+    <p class="muted">Estimate DeepSeek tokens for a .md, .txt, .json or .jsonl file. Counting is local; nothing is sent to DeepSeek.</p>
+    <div class="toolbar">
+      <input id="token-file" type="file" accept=".md,.markdown,.txt,.json,.jsonl">
+      <label class="muted"><input type="checkbox" id="token-raw"> Raw text</label>
+      <input id="token-encoding" type="text" value="utf-8" size="8" title="Text encoding" aria-label="Text encoding">
+      <button class="btn primary" id="token-count"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5h16v2"/><path d="M9 19h6"/><path d="M12 5v14"/></svg><span>Count tokens</span></button>
+      <button class="btn" id="token-clear">Clear</button>
+      <span class="muted" id="token-status"></span>
+    </div>
+    <div class="drop-zone" id="token-drop">Drop a file here</div>
+    <textarea id="token-text" rows="6" placeholder="&hellip;or paste text here. A chosen file takes precedence."></textarea>
+    <div id="token-result"></div>
   </div>
 </details>
 

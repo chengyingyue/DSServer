@@ -68,9 +68,10 @@ sending its own API key; the Bridge passes it through and never stores it.
 
 ### Save a conversation without calling the model
 
-`POST /save` accepts the same body as a chat request, but the Bridge **records
-it and does not forward it upstream**. It answers with the user's latest message
-followed by `saved` in the assistant position, so the saved turn shows up like
+`POST /save` (also `POST /save/chat/completions`) accepts the same body as a
+chat request, but the Bridge **records it and does not forward it upstream**. It
+answers with the user's latest message followed by `saved` and the estimated
+context token count in the assistant position, so the saved turn shows up like
 any model reply — and appears in the rendered Markdown:
 
 ```
@@ -79,30 +80,44 @@ any model reply — and appears in the rendered Markdown:
 
 ### Assistant
 最后一轮输入
-saved
+saved · 1,234 tokens
 ```
 
-(If the latest user content is not plain text, the reply is just `saved`.)
+The count covers all message content in the request; it is a content-only
+estimate, so the API's `usage` remains authoritative. If the tokenizer cannot
+be loaded, the reply is just `saved`.
 If the request sets `stream: true`, the Bridge answers with an SSE stream
 (`text/event-stream`, ending in `data: [DONE]`) just like the Upstream would,
 so streaming Clients work unchanged.
 
 ### Run in the background (no terminal left open)
 
-To keep the Bridge running without leaving a terminal window open, start it as a
-hidden process that logs to files:
+Use the detached launcher; it starts the Bridge with logs in
+`dsserver-<env>.log` / `dsserver-<env>.err.log` and returns immediately:
 
 ```powershell
-Start-Process -WindowStyle Hidden -FilePath "uv" -ArgumentList "run", "dsserver" `
-  -RedirectStandardOutput "dsserver.log" -RedirectStandardError "dsserver.err.log"
+uv run python scripts/restart.py --env test
 ```
+
+`--env test` uses `test_port` (8788); `--env prod` uses `port` (8787). Add
+`--restart` to replace whatever is already listening on that port; add `--wait`
+to poll until the page responds. Stop one or both servers with `--stop --env
+test`, `--stop --env prod`, or `--stop --env all` (for example before
+`uv sync`).
+
+The test server shares `data/` with production; use it for read-only checks and
+keep write tests in pytest temp stores.
 
 Check it is running and stop it when needed:
 
 ```powershell
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8788/
 Get-Process -Name dsserver
 Stop-Process -Name dsserver
 ```
+
+Do not use `Start-Process` with redirected stdout/stderr together with
+`Start-Sleep` — it can hang the calling shell.
 
 ## The web GUI
 
@@ -115,6 +130,10 @@ Open `http://<host>:8787/` in a browser. The same page lets you:
   characters, so they stay readable.
 - **Preview a Conversation.** Click a Conversation (or its View button) to read
   its rendered content without leaving the page.
+- **Count tokens for a file.** Drop or upload a `.md`, `.txt`, `.json`, or
+  `.jsonl` file (or paste text) to estimate its token count against the Smart
+  Zone. JSON/JSONL chat content is extracted by default; tick `Raw text` to
+  count the file verbatim.
 - **Convert EPUBs.** Drop EPUBs into `data/epub/inbox/`, or upload one, and
   convert them into e-reader-friendly copies in `data/epub/out/`.
 - **Build an EPUB from Conversations.** Tick the Conversations you want and get a
@@ -151,6 +170,25 @@ A `⚠️` appears once the prompt reaches 80% of the budget. Every Turn header 
 shows its own `N total tokens · N ms`. The same numbers are printed to the
 server console as each Exchange is recorded.
 
+## Count tokens for a file
+
+The GUI's **Tokens** section estimates the DeepSeek token count for a `.md`,
+`.txt`, `.json`, or `.jsonl` file, or for pasted text. It reports the token
+count, characters, lines, bytes, and the percentage of `smart_zone_tokens`.
+
+- `.md` and `.txt` files are counted verbatim.
+- `.json` and `.jsonl` files are scanned for chat content: `messages`,
+  `request.messages`, and assistant response content are concatenated and
+  counted; records without chat content are skipped. Tick **Raw text** to count
+  the whole file instead.
+- Unknown extensions are counted as raw text with a warning. Use the
+  **Encoding** field for non-UTF-8 files.
+- The first run downloads DeepSeek's official offline tokenizer (about 6 MB) to
+  `data/tokenizers/deepseek_v4/` and reuses it. Counting is local; file content
+  never leaves the machine.
+- The result is a content-only estimate; the Upstream's chat template adds a
+  small overhead, so the authoritative number remains the API's `usage`.
+
 ## Where the data lives
 
 - `data/exchanges.jsonl` — the append-only truth log, one Exchange per line (also
@@ -160,6 +198,7 @@ server console as each Exchange is recorded.
 - `data/epub/inbox/` — EPUBs to convert (drop files here, or upload)
 - `data/epub/work/` — editable work copies (owned by the EPUB pipeline)
 - `data/epub/out/` — converted and built EPUBs
+- `data/tokenizers/` — cached DeepSeek tokenizer (downloaded on first use)
 
 ## Home LAN setup
 
@@ -186,8 +225,9 @@ needed. See `Tailscale 配置指南.md` for the full setup steps.
 - [ ] `uv sync` succeeds and `.venv` is created
 - [ ] `uv run dsserver` listens on port 8787
 - [ ] `uv run dsserver serve --env test` listens on port 8788
-- [ ] `POST /save` returns the latest user input + `saved`, forwards nothing
-      upstream, and appears in the Markdown
+- [ ] `POST /save` returns the latest user input + `saved · N tokens`, forwards
+      nothing upstream, and appears in the Markdown
+- [ ] The Tokens section counts an uploaded Markdown, text, JSON, or JSONL file
 - [ ] A rendered Conversation shows the latest turn's `Prompt token` / `Total token`
       and the percentage at the top
 - [ ] A phone app on the same Wi-Fi uses the Bridge once its base URL points at it

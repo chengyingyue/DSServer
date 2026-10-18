@@ -46,6 +46,15 @@ def build_client_info(headers: Mapping[str, str], whitelist: Sequence[str]) -> C
     return ClientInfo(user_agent=user_agent, headers=captured)
 
 
+def build_chat_response(
+    status: int,
+    usage: dict[str, Any] | None,
+    finish_reason: str | None,
+    message: dict[str, Any],
+) -> dict[str, Any]:
+    return {"status": status, "usage": usage, "finish_reason": finish_reason, "message": message}
+
+
 @dataclass
 class Exchange:
     id: str

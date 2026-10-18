@@ -69,9 +69,17 @@ The two ports the Bridge can serve on. Production is the port the everyday Clien
 _Avoid_: main port, dev port；主端口、开发端口
 
 **Save-only Request**（仅记录请求）:
-A request that the Bridge records as an Exchange but does not forward to the Upstream, answering with the marker text "conversation saved" in the Assistant position. Used to persist a Conversation on demand.
+A request that the Bridge records as an Exchange but does not forward to the Upstream, answering with the marker text "saved" (plus an estimated token count) in the Assistant position. Used to persist a Conversation on demand.
 _Avoid_: import, offline save；导入、离线保存
 
 **Smart Zone**（智能区 / 有效上下文）:
 The span of context within which the model still reasons sharply, expressed as a token budget. The Bridge surfaces each Conversation's latest-turn context size against it so the owner can gauge how close a thread is to degrading.
 _Avoid_: context window, max tokens；上下文窗口、最大 token
+
+**Token Estimate**（token 估算）:
+A locally computed token count for text or a file, produced with the Upstream's tokenizer. It estimates message content only; the **Usage** reported by the Upstream is authoritative.
+_Avoid_: token count, usage；token 数、用量
+
+**Usage**（用量）:
+The token counts reported by the Upstream in a response. The authoritative measurement, distinct from a Token Estimate.
+_Avoid_: token estimate, count；估算、token 数
