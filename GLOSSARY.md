@@ -40,6 +40,10 @@ _Avoid_: chat, thread, session；聊天、线程、会话记录
 The human-readable label identifying a Conversation, shown as the filename of its rendered Markdown. Owned by the human and stored as a Record in the Facts Store — not inferred from message content once set.
 _Avoid_: title, filename, slug；标题、文件名
 
+**Conversation Title**（会话标题）:
+The name a Conversation shows while it has no Conversation Name: a computed default, not human-owned. A regular Conversation takes it from the first user message; a Save-only Exchange takes it from the last user message, truncated to 60 characters on a word boundary. It is re-derived when a later Save extends the same Conversation, and a Conversation Name always overrides it.
+_Avoid_: name, heading；名称、标题字段
+
 **Conversation Identity**（会话标识）:
 The pair of a Conversation's **key** and its **branch**, which together address exactly one Conversation. Used when a Conversation must be referenced unambiguously, such as when selecting Conversations to build or rename.
 _Avoid_: id, address, ref；编号、地址

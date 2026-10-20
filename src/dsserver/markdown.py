@@ -32,23 +32,23 @@ def _signature(message: dict[str, Any]) -> tuple[str, str]:
     return (str(message.get("role", "")), _content_text(message.get("content")))
 
 
-def _message_with_role(
-    msgs: list[dict[str, Any]], role: str, *, last: bool = False
-) -> dict[str, Any] | None:
-    ordered = reversed(msgs) if last else msgs
-    for message in ordered:
+def _first_with_role(msgs: list[dict[str, Any]], role: str) -> dict[str, Any] | None:
+    for message in msgs:
         if message.get("role") == role:
             return message
     return None
 
 
-def _first_message_with_role(msgs: list[dict[str, Any]], role: str) -> dict[str, Any] | None:
-    return _message_with_role(msgs, role)
+def _last_with_role(msgs: list[dict[str, Any]], role: str) -> dict[str, Any] | None:
+    for message in reversed(msgs):
+        if message.get("role") == role:
+            return message
+    return None
 
 
 def conversation_key(msgs: list[dict[str, Any]]) -> str:
-    system = _first_message_with_role(msgs, "system")
-    user = _first_message_with_role(msgs, "user")
+    system = _first_with_role(msgs, "system")
+    user = _first_with_role(msgs, "user")
     basis = json.dumps(
         {
             "system": _signature(system) if system else None,
@@ -78,9 +78,8 @@ def truncate_title(text: str) -> str:
     return cut.strip()
 
 
-def _user_text(msgs: list[dict[str, Any]], *, last: bool = False) -> str:
-    user = _message_with_role(msgs, "user", last=last)
-    return _content_text(user.get("content")).strip() if user else ""
+def _user_text(message: dict[str, Any] | None) -> str:
+    return _content_text(message.get("content")).strip() if message else ""
 
 
 def _is_saved(record: dict[str, Any]) -> bool:
@@ -88,10 +87,10 @@ def _is_saved(record: dict[str, Any]) -> bool:
     return record.get("kind") == SAVE_KIND or bool((record.get("meta") or {}).get("saved"))
 
 
-def _title(msgs: list[dict[str, Any]], record: dict[str, Any]) -> str:
+def _default_title(msgs: list[dict[str, Any]], record: dict[str, Any]) -> str:
     if _is_saved(record):
-        return truncate_title(_user_text(msgs, last=True)) or "Conversation"
-    text = _user_text(msgs)
+        return truncate_title(_user_text(_last_with_role(msgs, "user"))) or "Conversation"
+    text = _user_text(_first_with_role(msgs, "user"))
     if not text:
         return "Conversation"
     return text.splitlines()[0][:TITLE_LIMIT]
@@ -154,7 +153,7 @@ def _new_conversation(
     branch: int,
 ) -> Conversation:
     date = str(record.get("ts", ""))[:10]
-    title = _title(msgs, record)
+    title = _default_title(msgs, record)
     slug = _slug(title)
     stem = f"{date}-{slug or key[:8]}"
     if branch > 0 and not _is_saved(record):
@@ -317,7 +316,7 @@ class ConversationIndex:
     def _retitle(
         self, conversation: Conversation, msgs: list[dict[str, Any]], record: dict[str, Any]
     ) -> None:
-        title = _title(msgs, record)
+        title = _default_title(msgs, record)
         if title == conversation.title:
             return
         stem = f"{conversation.date}-{_slug(title) or conversation.key[:8]}"
