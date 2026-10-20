@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
-from .models import FOLDER_KIND, RENAME_KIND, RENDER_NORMAL
+from .models import CHAT_KIND, FOLDER_KIND, RENAME_KIND, RENDER_NORMAL, SAVE_KIND
 from .naming import unique_name
 from .store import read_records
 
@@ -32,11 +32,18 @@ def _signature(message: dict[str, Any]) -> tuple[str, str]:
     return (str(message.get("role", "")), _content_text(message.get("content")))
 
 
-def _first_message_with_role(msgs: list[dict[str, Any]], role: str) -> dict[str, Any] | None:
-    for message in msgs:
+def _message_with_role(
+    msgs: list[dict[str, Any]], role: str, *, last: bool = False
+) -> dict[str, Any] | None:
+    ordered = reversed(msgs) if last else msgs
+    for message in ordered:
         if message.get("role") == role:
             return message
     return None
+
+
+def _first_message_with_role(msgs: list[dict[str, Any]], role: str) -> dict[str, Any] | None:
+    return _message_with_role(msgs, role)
 
 
 def conversation_key(msgs: list[dict[str, Any]]) -> str:
@@ -53,20 +60,41 @@ def conversation_key(msgs: list[dict[str, Any]]) -> str:
     return hashlib.sha1(basis.encode("utf-8")).hexdigest()
 
 
-def _slug(msgs: list[dict[str, Any]]) -> str:
-    user = _first_message_with_role(msgs, "user")
-    text = _content_text(user.get("content")) if user else ""
+def _slug(text: str) -> str:
     slug = re.sub(r"[^\w]+", "-", text.lower()).strip("-_")
     return slug[:40].strip("-_")
 
 
-def _title(msgs: list[dict[str, Any]]) -> str:
-    user = _first_message_with_role(msgs, "user")
-    text = _content_text(user.get("content")).strip() if user else ""
+TITLE_LIMIT = 60
+
+
+def truncate_title(text: str) -> str:
+    collapsed = re.sub(r"\s+", " ", text).strip()
+    if len(collapsed) <= TITLE_LIMIT:
+        return collapsed
+    cut = collapsed[:TITLE_LIMIT]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.strip()
+
+
+def _user_text(msgs: list[dict[str, Any]], *, last: bool = False) -> str:
+    user = _message_with_role(msgs, "user", last=last)
+    return _content_text(user.get("content")).strip() if user else ""
+
+
+def _is_saved(record: dict[str, Any]) -> bool:
+    # `meta.saved` is the pre-SAVE_KIND shape; kept so old log records replay unchanged.
+    return record.get("kind") == SAVE_KIND or bool((record.get("meta") or {}).get("saved"))
+
+
+def _title(msgs: list[dict[str, Any]], record: dict[str, Any]) -> str:
+    if _is_saved(record):
+        return truncate_title(_user_text(msgs, last=True)) or "Conversation"
+    text = _user_text(msgs)
     if not text:
         return "Conversation"
-    first_line = text.splitlines()[0]
-    return first_line[:60]
+    return text.splitlines()[0][:TITLE_LIMIT]
 
 
 _WINDOWS_RESERVED_STEMS = {
@@ -126,14 +154,15 @@ def _new_conversation(
     branch: int,
 ) -> Conversation:
     date = str(record.get("ts", ""))[:10]
-    slug = _slug(msgs) or key[:8]
-    stem = f"{date}-{slug}"
-    if branch > 0:
+    title = _title(msgs, record)
+    slug = _slug(title)
+    stem = f"{date}-{slug or key[:8]}"
+    if branch > 0 and not _is_saved(record):
         stem = f"{stem}-b{branch + 1}"
     return Conversation(
         key=key,
         filename=_unique_filename(stem, used_names),
-        title=_title(msgs),
+        title=title,
         date=date,
         model=(record.get("request") or {}).get("model"),
         branch=branch,
@@ -240,7 +269,7 @@ class ConversationIndex:
         if kind == FOLDER_KIND:
             self._apply_folder(record, self._seq)
             return None
-        if kind != "chat":
+        if kind not in (CHAT_KIND, SAVE_KIND):
             return None
         request = record.get("request") or {}
         msgs = request.get("messages") or []
@@ -278,10 +307,23 @@ class ConversationIndex:
             )
         )
         conversation.history = signatures + [_signature(response_message)]
+        if conversation.name is None and _is_saved(record):
+            self._retitle(conversation, msgs, record)
         record_id = record.get("id")
         if isinstance(record_id, str):
             conversation.record_ids.append(record_id)
         return conversation
+
+    def _retitle(
+        self, conversation: Conversation, msgs: list[dict[str, Any]], record: dict[str, Any]
+    ) -> None:
+        title = _title(msgs, record)
+        if title == conversation.title:
+            return
+        stem = f"{conversation.date}-{_slug(title) or conversation.key[:8]}"
+        self._used_names.discard(conversation.filename.lower())
+        conversation.title = title
+        conversation.filename = _unique_filename(stem, self._used_names)
 
     def _apply_rename(self, record: dict[str, Any], order: int) -> Conversation | None:
         key = record.get("key")

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 CHAT_KIND = "chat"
+SAVE_KIND = "save"
 OTHER_KIND = "other"
 RENAME_KIND = "rename"
 FOLDER_KIND = "folder"

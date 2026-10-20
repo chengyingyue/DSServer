@@ -47,6 +47,7 @@ from .models import (
     OTHER_KIND,
     RENDER_MODES,
     RENDER_PLAIN_CODE,
+    SAVE_KIND,
     build_chat_response,
     build_client_info,
     build_exchange,
@@ -225,7 +226,8 @@ def create_app(
     app.state.store = store
 
     def log_chat_tokens(record: dict[str, Any]) -> None:
-        if record.get("kind") != CHAT_KIND:
+        kind = record.get("kind")
+        if kind not in (CHAT_KIND, SAVE_KIND):
             return
         response = record.get("response") or {}
         usage = response.get("usage") or {}
@@ -236,7 +238,7 @@ def create_app(
             return
         model = (record.get("request") or {}).get("model") or "?"
         latency = (record.get("meta") or {}).get("latency_ms")
-        parts = [f"[chat] {model}"]
+        parts = [f"[{kind}] {model}"]
         if prompt is not None:
             parts.append(f"prompt={prompt:,}")
         if completion is not None:
@@ -764,7 +766,7 @@ def create_app(
             "content": _save_reply(chat_request.messages, tokens),
         }
         record = build_exchange(
-            CHAT_KIND,
+            SAVE_KIND,
             build_client_info(request.headers, config.header_whitelist),
             chat_request.to_request_dict(request.url.path),
             build_chat_response(200, None, "stop", message),
