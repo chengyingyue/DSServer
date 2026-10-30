@@ -92,11 +92,12 @@ def build_exchange(
     meta: dict[str, Any],
     raw_sse: str | None = None,
     owner: str = "local",
+    ts: str | None = None,
 ) -> Exchange:
     return Exchange(
         id=new_id(),
         owner=owner,
-        ts=now_iso(),
+        ts=ts or now_iso(),
         kind=kind,
         client=client,
         request=request,

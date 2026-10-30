@@ -324,6 +324,9 @@ async def test_legacy_meta_saved_chat_record_still_replays_as_saved(config):
     assert entry["title"] == "I need help with returns"
 
 
+PINNED_TS = "2026-10-20T12:00:00+00:00"
+
+
 def _stored_record(kind, msgs, content="ok"):
     return build_exchange(
         kind,
@@ -331,6 +334,7 @@ def _stored_record(kind, msgs, content="ok"):
         {"messages": msgs, "model": "m"},
         build_chat_response(200, None, "stop", {"role": "assistant", "content": content}),
         {},
+        ts=PINNED_TS,
     ).to_dict()
 
 
