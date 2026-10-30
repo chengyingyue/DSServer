@@ -63,7 +63,7 @@ uv run dsserver serve --env test
 Only one port is served per run; both behave identically.
 
 Point your Client's API base URL at the Bridge, for example
-`http://192.168.1.50:8787` (or `http://192.168.1.50:8787/v1`). The Client keeps
+`http://192.168.5.7:8787` (or `http://192.168.5.7:8787/v1`). The Client keeps
 sending its own API key; the Bridge passes it through and never stores it.
 
 ### Save a conversation without calling the model
@@ -193,6 +193,8 @@ count, characters, lines, bytes, and the percentage of `smart_zone_tokens`.
 
 - `data/exchanges.jsonl` — the append-only truth log, one Exchange per line (also
   holds Conversation rename Records)
+- `data/exchanges.jsonl.cache.pkl` — derived parse cache that keeps startup fast;
+  safe to delete, it is rebuilt on the next start (ADR 0006)
 - `data/conversations/*.md` — the Markdown reading view
 - `data/index.md` — the list of conversations
 - `data/epub/inbox/` — EPUBs to convert (drop files here, or upload)

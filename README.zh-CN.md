@@ -68,8 +68,8 @@ uv run dsserver serve --env test
 
 启动后，把客户端的 API Base URL 指向桥接器，例如：
 
-- `http://192.168.1.50:8787`
-- 或 `http://192.168.1.50:8787/v1`
+- `http://192.168.5.7:8787`
+- 或 `http://192.168.5.7:8787/v1`
 
 ### 只保存会话、不调用模型
 
@@ -183,6 +183,7 @@ Total token: 89,000
 ## 8. 数据位置
 
 - `data/exchanges.jsonl` — 只追加的真相日志，每行一次交换（也存放会话改名 Record）
+- `data/exchanges.jsonl.cache.pkl` — 派生的解析缓存，用于加快启动；可随时删除，下次启动会重建（ADR 0006）
 - `data/conversations/*.md` — Markdown 阅读视图
 - `data/index.md` — 会话列表
 - `data/epub/inbox/` — 待转换的 EPUB（拖入或上传）
